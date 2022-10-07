@@ -1,0 +1,9 @@
+# Local files
+.ipynb_checkpoints
+__pycache__
+figures_deprecated.ipynb
+figures_additional.ipynb
+recombination.ipynb
+
+# Large files
+data
