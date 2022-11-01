@@ -651,10 +651,7 @@ def parse_performance_on_simulated_data(p, reg=1, methods=METHODS, muForInferenc
 
     start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
 
-    MAE_cov, Spearmanr_cov, MAE_selection, Spearmanr_selection = {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}
-    Pearsonr_cov, Pearsonr_selection = {m: [] for m in methods}, {m: [] for m in methods}
-
-    MAE_fitness, Spearmanr_fitness, Pearsonr_fitness = {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}
+    MAE_cov, Spearmanr_cov, Pearsonr_cov, MAE_selection, Spearmanr_selection, Pearsonr_selection, MAE_fitness, Spearmanr_fitness, Pearsonr_fitness = {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}
 
     if include_Lolipop:
         (cov_Lolipop, selection_Lolipop, fitness_Lolipop,

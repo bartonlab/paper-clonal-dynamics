@@ -1744,7 +1744,7 @@ class CladeReconstruction:
         res = {}
         muList = muList if self.testMultipleMu else [self.mu]
         for mu in muList:
-            for reg in regList:
+            for reg in regList + [defaultReg]:
                 recoveredSelection = self.inferSelection(self.recoveredIntCov, mu=mu, regularization=reg)
                 recoveredFitness = self.computeFitness(self.traj, recoveredSelection)
                 recoveredFitnessByProcessedTraj = self.computeFitness(self.processedTraj, recoveredSelection)
@@ -1787,8 +1787,9 @@ class CladeReconstruction:
         else:
             indices = list(range(len(self.times)))
 
-        (mu_recover, reg_recover) = max(res.keys(), key=lambda x: -MAE(self.fitness, res.get(x)[2][indices]))
-        _, _, self.recoveredFitness, self.recoveredFitnessByProcessedTraj = res[(mu_recover, reg_recover)]
+        # (mu_recover, reg_recover) = max(res.keys(), key=lambda x: -MAE(self.fitness, res.get(x)[2][indices]))
+        # _, _, self.recoveredFitness, self.recoveredFitnessByProcessedTraj = res[(mu_recover, reg_recover)]
+        _, _, self.recoveredFitness, self.recoveredFitnessByProcessedTraj = res[(mu_recover, defaultReg)]
 
         estCov, selectionByEstCov, fitnessByEstCov, fitnessByEstCovAndProcessedTraj = res_est[defaultWindow]
 

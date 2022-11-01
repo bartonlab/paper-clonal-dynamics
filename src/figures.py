@@ -271,7 +271,7 @@ LABEL_SPEARMANR_FOUR = "Rank correlation\nbetween true and inferred\nselection c
 LABEL_SPEARMANR_COVARIANCE_FOUR = "Rank correlation\nbetween true and\ninferred covariances\n" + r"(Spearman’s $\rho$)"
 LABEL_SPEARMANR_FITNESS_FOUR = "Rank correlation\nbetween measured\nand inferred fitness\n" + r"(Spearman’s $\rho$)"
 
-LABEL_SPEARMANR_FOUR_2 = "Rank correlation\nbetween true and\ninferred selections\n" + r"(Spearman’s $\rho$)"
+LABEL_SPEARMANR_FOUR_2 = "Rank correlation\nbetween true and inferred\nselection coefficients\n" + r"(Spearman’s $\rho$)"
 LABEL_SPEARMANR_COVARIANCE_FOUR_2 = "Rank correlation\nbetween true and\ninferred covariances\n" + r"(Spearman’s $\rho$)"
 LABEL_SPEARMANR_FITNESS_FOUR_2 = "Rank correlation\nbetween measured\nand inferred fitness\n" + r"(Spearman’s $\rho$)"
 
@@ -575,7 +575,6 @@ def plot_figure_reconstruction_example(simulation, reconstruction, nRow=3, nCol=
     w = SINGLE_COLUMN if plot_single_column else DOUBLE_COLUMN
     goldh = w / GOLD_RATIO
 
-    gs_top = plt.GridSpec(3, 1, hspace=hspace)
     gs_base = plt.GridSpec(3, 1, hspace=hspace_annotate_together if annotate_together else hspace)
     fig = plt.figure(figsize=(w, goldh))
     # fig, axes = plt.subplots(nRow, nCol, figsize=(w, goldh))
@@ -790,12 +789,13 @@ def plot_figure_performance_example(simulation, reconstruction, evaluation, nRow
             plot_comparison(selection_true, ys, xlabel, ylabel, alpha=alpha, ylim=ylim, yticks=yticks, xticks=yticks if i == nRow - 1 else [])
     elif plot_genotype_fitness:
         ylabels = ['Fitness inferred\nwith true covariance', 'Fitness inferred with\nreconstructed covariance', 'Fitness inferred when\nignoring linkage']
-        xlabel = 'True Fitness'
+        xlabel = 'True fitness'
         for i, (xs, ys) in enumerate(zip(xs_fitness_list, ys_fitness_list)):
             ylabel = ylabels[i]
             plt.sca(axes[i, 1])
             ax = plt.gca()
-            plot_comparison(xs, ys, xlabel if i == nRow - 1 else None, ylabel, alpha=alpha, ylim=ylim, yticks=yticks, xticks=yticks, xticklabels=yticks if i == nRow - 1 else [])
+            plot_comparison(xs, ys, xlabel if i == nRow - 1 else None, ylabel, alpha=alpha, ylim=ylim, yticks=yticks, xticks=yticks, xticklabels=yticks if i == nRow - 1 else [], plot_title=False)
+            plt.text(x=0.05, y=0.9, s="Spearman's " + r'$\rho$' + ' = %.2f' % stats.spearmanr(xs, ys)[0], transform=ax.transAxes, fontsize=SIZELABEL)
             plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[3 + i], transform=ax.transAxes, **DEF_SUBLABELPROPS)
     else:
         if compare_with_SL:
@@ -820,14 +820,16 @@ def plot_figure_performance_example(simulation, reconstruction, evaluation, nRow
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
 
 
-def plot_comparison(xs, ys, xlabel, ylabel, label=None, annot_texts=None, alpha=0.6, ylim=None, yticks=None, xticks=None, xticklabels=None, plot_title=True, title_pad=4):
+def plot_comparison(xs, ys, xlabel, ylabel, label=None, annot_texts=None, alpha=0.6, ylim=None, xlim=None, yticks=None, xticks=None, xticklabels=None, plot_title=True, title_pad=4):
     plt.scatter(xs, ys, marker='o', edgecolors='none', s=SIZEDOT, alpha=alpha, label=label)
     if annot_texts is not None:
         for x, y, text in zip(xs, ys, annot_texts):
             plt.annotate(x, y, text)
-    set_ticks_labels_axes(xlim=ylim, ylim=ylim, xticks=xticks, yticks=yticks, xticklabels=xticklabels, yticklabels=yticks, xlabel=xlabel, ylabel=ylabel)
-    plt.plot(ylim, ylim, color=GREY_COLOR_RGB, alpha=alpha, linestyle='dashed')
-    plt.gca().set_aspect('equal', adjustable='box')
+    if xlim is None:
+        xlim = ylim
+        plt.plot(ylim, ylim, color=GREY_COLOR_RGB, alpha=alpha, linestyle='dashed')
+        plt.gca().set_aspect('equal', adjustable='box')
+    set_ticks_labels_axes(xlim=xlim, ylim=ylim, xticks=xticks, yticks=yticks, xticklabels=xticklabels, yticklabels=yticks, xlabel=xlabel, ylabel=ylabel)
     if plot_title:
         plt.title("Spearman's " + r'$\rho$' + ' = %.2f' % stats.spearmanr(xs, ys)[0], fontsize=SIZELABEL, pad=title_pad)
 
@@ -851,7 +853,7 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
     hshrink = 1.5
     if MAE_fitness is not None and Spearmanr_fitness is not None:
         if two_columns:
-            goldh   = 0.60 * w * hshrink
+            goldh   = 0.70 * w * hshrink
         else:
             goldh   = 1.10 * w * hshrink
     else:
@@ -866,7 +868,7 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
     if MAE_fitness is not None and Spearmanr_fitness is not None:
         if two_columns:
             ddy = 0.17 / hshrink
-            dy = 0.28 / hshrink  # Adjusts height of each subplot, & height of white space below the subplots.
+            dy = 0.27 / hshrink  # Adjusts height of each subplot, & height of white space below the subplots.
         else:
             ddy = 0.1 / hshrink
             dy = 0.145 / hshrink  # Adjusts height of each subplot, & height of white space below the subplots.
@@ -897,13 +899,13 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
         axes = [plt.subplot(gridspec[0, 0]) for gridspec in gridspecs]
 
     if MAE_fitness is not None and Spearmanr_fitness is not None:
-        ylim_list = [[0, 5.5], [0, 1.1], [0, 0.045], [0, 1.1], [0, 0.085], [0, 1.1]]
+        ylim_list = [[0, 4.4], [0, 1.1], [0, 0.044], [0, 1.1], [0, 0.088], [0, 1.1]]
         yticks_list = [[0, 2, 4], [0, 0.5, 1], [0, 0.02, 0.04], [0, 0.5, 1], [0, 0.04, 0.08], [0, 0.5, 1]]
         yticklabels_list = [['0', '2', r'$\geq 4$'], ['0', '0.5', '1'], ['0', '0.02', '0.04'], ['0', '0.5', '1'], ['0', '0.04', '0.08'], ['0', '0.5', '1']]
         ceil_list = [4, None, 0.04, None, 0.08, None]
         floor_list = [None, None, None, None, None, None]
     else:
-        ylim_list = [[0, 5.5], [0, 1.1], [0, 0.085] if evaluate_fitness else [0, 0.045], [0, 1.1]]
+        ylim_list = [[0, 4.4], [0, 1.1], [0, 0.088] if evaluate_fitness else [0, 0.044], [0, 1.1]]
         yticks_list = [[0, 2, 4], [0, 0.5, 1], [0, 0.04, 0.08] if evaluate_fitness else [0, 0.02, 0.04], [0, 0.5, 1]]
         yticklabels_list = [['0', '2', r'$\geq 4$'], ['0', '0.5', '1'], ['0', '0.04', '0.08'] if evaluate_fitness else ['0', '0.02', '0.04'], ['0', '0.5', '1']]
         ceil_list = [4, None, 0.08 if evaluate_fitness else 0.04, None]
@@ -957,6 +959,36 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
         y_avgs = np.mean(ys, axis=1)
         ax = axes[row]
 
+        if row == 1:
+            scatter_indices = np.array([_ for _ in range(len(ys)) if _ not in [0, 4]])  # Spearmanr of covariances does not apply to the SL/MPL method
+            # scatter_indices = np.arange(len(ys))
+            plt.sca(ax)
+            na_x, na_y = 3.6, 0.15
+            plt.plot([4, 4], [0, na_y - 0.05], linewidth=SIZELINE, color=BKCOLOR)
+            plt.text(na_x, na_y, 'NA', fontsize=SIZESUBLABEL)
+
+            na_x, na_y = -0.4, 0.15
+            plt.plot([0, 0], [0, na_y - 0.05], linewidth=SIZELINE, color=BKCOLOR)
+            plt.text(na_x, na_y, 'NA', fontsize=SIZESUBLABEL)
+
+            y_avgs[0] = None
+            y_avgs[4] = None
+        elif row == 0:
+            scatter_indices = np.array([_ for _ in range(len(ys)) if _ not in [0, 4]])
+            plt.sca(ax)
+
+            na_x, na_y = 3.6, 0.6
+            plt.plot([4, 4], [0, na_y - 0.2], linewidth=SIZELINE, color=BKCOLOR)
+            plt.text(na_x, na_y, 'NA', fontsize=SIZESUBLABEL)
+
+            na_x, na_y = -0.4, 0.6
+            plt.plot([0, 0], [0, na_y - 0.2], linewidth=SIZELINE, color=BKCOLOR)
+            plt.text(na_x, na_y, 'NA', fontsize=SIZESUBLABEL)
+            y_avgs[0] = None
+            y_avgs[4] = None
+        else:
+            scatter_indices = np.arange(0, len(ys))
+
         pprops = { 'colors':      [colorlist],
                    'xlim':        deepcopy(xlim),
                    'ylim':        ylim,
@@ -987,23 +1019,24 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
             ys[ys >= ceil] = ceil
 
         pprops['facecolor'] = ['None' for _c1 in range(len(xs))]
-        pprops['edgecolor'] = eclist
+        pprops['edgecolor'] = [eclist[_] for _ in scatter_indices]
         # size_of_point = 2.
         size_of_point = 1.5 if two_columns else 4.
         sprops = dict(lw=AXWIDTH, s=size_of_point, marker='o', alpha=1.0)
-        temp_x = [[xs[_c1] + np.random.normal(0, 0.04) for _c2 in range(len(ys[_c1]))] for _c1 in range(len(ys))]
-        mp.scatter(ax=ax, x=temp_x, y=ys, plotprops=sprops, **pprops)
+        temp_x = [[xs[_c1] + np.random.normal(0, 0.04) for _c2 in range(len(ys[_c1]))] for _c1 in scatter_indices]
+        mp.scatter(ax=ax, x=temp_x, y=ys[scatter_indices], plotprops=sprops, **pprops)
 
-        pprops['facecolor'] = fclist
+        pprops['facecolor'] = [fclist[_] for _ in scatter_indices]
         sprops = dict(lw=0, s=size_of_point, marker='o', alpha=1)
-        mp.scatter(ax=ax, x=temp_x, y=ys, plotprops=sprops, **pprops)
+        mp.scatter(ax=ax, x=temp_x, y=ys[scatter_indices], plotprops=sprops, **pprops)
         if row % 2 > 0:
             plt.sca(ax)
             plt.ylabel(ylabel, labelpad=1)
         plot_figure_performance_on_simulated_data_helper(ax)
         if two_columns and row >= 4:
             plt.sca(ax)
-            plt.xticks(ticks=xs, labels=xticklabels, rotation=38)
+            # plt.xticks(ticks=xs, labels=xticklabels, rotation=38)
+            plt.xticks(ticks=xs, labels=xticklabels, rotation=90)
         if two_columns and row % 2 == 1:
             plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[row // 2], transform=ax.transAxes, **DEF_SUBLABELPROPS)
 
@@ -1078,7 +1111,48 @@ def plot_figure_clusterizations_LTEE(populations, clusterizations):
     pass
 
 
-def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, alpha=0.4, plotIntpl=True, ylim=(-0.03, 1.03), bbox_to_anchor_legend=(-0.005, 0.5), annotation_line_size=SIZEANNOTATION, legend_frameon=False, save_file=None):
+def get_axes_for_reconstruction_example_LTEE():
+    ratio   = 0.33
+    w       = DOUBLE_COLUMN
+    h       = ratio * w
+    fig     = plt.figure(figsize=(w, h))
+
+    divider_width = 0.1
+    box_left = 0.065
+    # box_bottom = 0.14
+    box_top = 0.95
+    ddy = 0.07  # Adjust hspace
+    dy = 0.37  # Adjusts height of each subplot. Also adjusts height of white space below the subplots.
+    # Height of heatmap = cov_top - cov_bottom
+    # Width of heatmap = (cov_top - cov_bottom) * (h / w)
+
+    box_bottom = box_top - (2*dy)-(1*ddy)
+
+    cov_right = 0.99
+    cov_bottom = box_bottom
+    cov_top = box_top
+
+    cbar_width = 0.1
+    cov_width = ratio * (cov_top - cov_bottom) + cbar_width
+    box_middle = cov_right - divider_width - cov_width
+    cov_left = box_middle + divider_width
+
+    traj_boxes = [dict(left=box_left,
+                  right=box_middle,
+                  bottom=box_top-((i+1)*dy)-(i*ddy),
+                  top=box_top-(i*dy)-(i*ddy)) for i in range(2)]
+    cov_box = dict(left=cov_left,
+                   right=cov_right,
+                   bottom=cov_bottom,
+                   top=cov_top)
+
+    boxes = traj_boxes + [cov_box]
+    gridspecs = [gridspec.GridSpec(1, 1, **boxes[i]) for i in range(len(boxes))]
+    axes = [plt.subplot(gridspecs[i][0, 0]) for i in range(len(gridspecs))]
+    return fig, axes
+
+
+def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, alpha=0.4, plotIntpl=True, ylim=(-0.03, 1.03), bbox_to_anchor_legend=(-0.005, 0.5), annotation_line_size=SIZEANNOTATION, legend_frameon=False, plot_legend_out_on_the_right=True, save_file=None):
 
     if False:
         pass
@@ -1097,10 +1171,12 @@ def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, alpha=0.4
         # res = reconstructions[pop]
         # alpha_ = alpha if len(data[pop]['sites_intpl']) <= 1000 else 0.1
 
-    w = DOUBLE_COLUMN
-    fig, axes = plt.subplots(2, 1, figsize=(w, 0.3 * w))
+    # w = DOUBLE_COLUMN
+    # fig, axes = plt.subplots(2, 1, figsize=(w, 0.3 * w))
+    fig, axes = get_axes_for_reconstruction_example_LTEE()
     xlabel, ylabel = 'Generation', 'Frequency'
     xticks = range(0, 60001, 10000)
+    tStart, tEnd = reconstruction.times[0], reconstruction.times[-1]
     if pop in EXCHANGE_FIRST_TWO_CLADES_LTEE and EXCHANGE_FIRST_TWO_CLADES_LTEE[pop]:
         clade_colors = {
             0: LTEE_EXTINCT_COLOR,
@@ -1118,9 +1194,16 @@ def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, alpha=0.4
             4: '#cd7af5',
         }
 
-    tStart, tEnd = reconstruction.times[0], reconstruction.times[-1]
-    xlim = (tStart - 2500, tEnd + 500)
-    sublabel_x, sublabel_y = -0.05, 1
+    if plot_legend_out_on_the_right:
+        if reconstruction.numClades >= 4:
+            bbox_to_anchor_legend = (1, 0.45)
+        else:
+            bbox_to_anchor_legend = (1, 0.5)
+        xlim = (tStart - 500, tEnd + 500)
+        sublabel_x, sublabel_y = -0.112, 0.957
+    else:
+        xlim = (tStart - 2500, tEnd + 500)
+        sublabel_x, sublabel_y = -0.05, 1
 
     plt.sca(axes[0])
     ax = plt.gca()
@@ -1154,14 +1237,13 @@ def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, alpha=0.4
             times = data[pop]['times'][l]
             freqs = data[pop]['freqs'][l]
         c = data[pop]['site_to_clade'][site]
-        if c == 5:
-            c = 1
-        elif c == 6:
+        if c == 6:
             c = 3
         plt.plot(times, freqs, linewidth=SIZELINE * 0.5, alpha=alpha, color=LH.COLORS[c])
 
     if pop in LH.populations_nonclonal:
         handles = [matplotlib.lines.Line2D([], [], color=LTEE_ANCESTOR_FIXED_COLOR, label='Ancestor'),
+                   matplotlib.lines.Line2D([], [], color=LTEE_ANCESTOR_POLYMORPHIC_COLOR, label='Ancestor\npolymorphic'),
                    matplotlib.lines.Line2D([], [], color=LTEE_EXTINCT_COLOR, label='Extinct')]
     else:
         handles = [matplotlib.lines.Line2D([], [], color=LTEE_ANCESTOR_FIXED_COLOR, label='Ancestor'),
@@ -1177,12 +1259,47 @@ def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, alpha=0.4
     plt.setp(ax.spines.values(), **DEF_AXPROPS)
     plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[1], transform=ax.transAxes, **DEF_SUBLABELPROPS)
 
-    if legend_frameon:
-        plt.subplots_adjust(0.06, 0.15, 0.83, 0.96)
-    else:
-        plt.subplots_adjust(0.06, 0.15, 0.99, 0.96)
+    plt.sca(axes[2])
+    ax = plt.gca()
+    segmentedIntDxdx, groups = LH.load_dxdx_for_LTEE(pop)
+    plot_dxdx_heatmap(segmentedIntDxdx, groups, as_subplot=True)
+    plt.setp(ax.spines.values(), **DEF_AXPROPS)
+    plt.text(x=-0.07, y=0.97, s=SUBLABELS[2], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+
+    # if legend_frameon:
+    #     plt.subplots_adjust(0.06, 0.15, 0.83, 0.96)
+    # else:
+    #     plt.subplots_adjust(0.06, 0.15, 0.99, 0.96)
     plt.show()
     if save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
+def plot_dxdx_heatmap(dxdx, groups, as_subplot=False, ylabel_x=-0.21, alpha=0.5, grid_line_offset=0, cbar_shrink=1, xtick_distance=40, figsize=(4, 3), rasterized=True, save_file=None):
+
+    L = len(dxdx)
+    if L > 1000:
+        xtick_distance = 400
+    if not as_subplot:
+        fig = plt.figure(figsize=figsize)
+    ax = plt.gca()
+    for l in range(L):
+        dxdx[l, l] = 0
+    heatmap = sns.heatmap(dxdx, center=0, cmap=CMAP, square=True, cbar=True, cbar_kws={"shrink": cbar_shrink}, rasterized=rasterized)
+    cbar = heatmap.collections[0].colorbar
+    # cbar.ax.tick_params(labelsize=SIZELABEL, length=2, color=)
+    cbar.ax.tick_params(**DEF_TICKPROPS_COLORBAR)
+    xticklabels = np.arange(0, L + xtick_distance // 2, xtick_distance)
+    xticks = [l for l in xticklabels]
+    ticks, ylabels, group_sizes = get_ticks_and_labels_for_clusterization(groups, name='Group', note_size=True)
+    # plot_ticks_and_labels_for_clusterization(ticks, ylabels, group_sizes, ylabel_x=ylabel_x)
+    ax.hlines([_ + grid_line_offset for _ in ticks], *ax.get_xlim(), color=GREY_COLOR_HEX, alpha=alpha, linewidth=SIZELINE * 1.2)
+    ax.vlines([_ + grid_line_offset for _ in ticks], *ax.get_ylim(), color=GREY_COLOR_HEX, alpha=alpha, linewidth=SIZELINE * 1.2)
+    set_ticks_labels_axes(yticks=[], yticklabels=[], xticks=xticks, xticklabels=xticklabels)
+    plt.xlabel('Locus index', fontsize=SIZELABEL)
+    if not as_subplot:
+        plt.show()
+    if not as_subplot and save_file:
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
 
 
@@ -1228,8 +1345,8 @@ def plot_identity_helper(pop, reconstruction, data, square=True, cmap=CMAP, redu
 
 
 def plot_figure_identity_example_LTEE(pop, reconstruction, data, save_file=None):
-    w = SINGLE_COLUMN
-    fig = plt.figure(figsize=(w, w))
+    w = SINGLE_COLUMN * 0.5
+    fig = plt.figure(figsize=(w * 1.5, w))
     plot_identity_helper(pop, reconstruction, data)
     plt.title(f"Population {pop}", fontsize=SIZELABEL)
     plt.show()
@@ -1237,7 +1354,7 @@ def plot_figure_identity_example_LTEE(pop, reconstruction, data, save_file=None)
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
 
 
-def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arrangement=True, mark_nonclonal_with_rectangle=False, plot_ylabel_for_all_second_row=True, mark_nonclonal_with_horizontal_text=True, mark_nonclonal_with_vertical_text=False, nRow=2, nCol=4, wspace=0.3, hspace=0.3, square=False, reduce_vmax=False, ticklabels_rotation=0, plot_single_column=False, save_file=None):
+def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arrangement=True, mark_nonclonal_with_rectangle=False, plot_ylabel_for_all_second_row=True, mark_nonclonal_with_horizontal_text=True, mark_nonclonal_with_vertical_text=False, nRow=2, nCol=4, wspace=0.3, hspace=0.3, square=False, reduce_vmax=False, ticklabels_rotation=0, plot_single_column=False, plot_sublabel=True, save_file=None):
     w = SINGLE_COLUMN if plot_single_column else DOUBLE_COLUMN
 
     if custom_arrangement:
@@ -1307,20 +1424,23 @@ def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arran
             plot_identity_helper(pop, reconstructions[pop], data, square=square, reduce_vmax=reduce_vmax, plot_xticks=plot_xticks, plot_yticks=(i == 0), xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
             plt.title(f"Population {pop}", fontsize=SIZELABEL)
             if i == 0:
-                plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[0], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+                if plot_sublabel:
+                    plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[0], transform=ax.transAxes, **DEF_SUBLABELPROPS)
 
         for i, pop in enumerate(populations_3_clades):
             ax = plt.subplot(srl_gs[0, i])
             plot_identity_helper(pop, reconstructions[pop], data, square=square, reduce_vmax=reduce_vmax, plot_xticks=True, plot_yticks=True if plot_ylabel_for_all_second_row else (i == 0), xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
             plt.title(f"Population {pop}", fontsize=SIZELABEL)
             if i == 0:
-                plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[1], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+                if plot_sublabel:
+                    plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[1], transform=ax.transAxes, **DEF_SUBLABELPROPS)
 
         pop = special_pop
         ax = plt.subplot(srm_gs[0, 0])
         plot_identity_helper(pop, reconstructions[pop], data, square=square, cmap=CMAP_NONCLONAL, reduce_vmax=reduce_vmax, plot_xticks=True, plot_yticks=True, xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
         plt.title(f"Population {pop}", fontsize=SIZELABEL)
-        plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[2], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+        if plot_sublabel:
+            plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[2], transform=ax.transAxes, **DEF_SUBLABELPROPS)
 
         for i, pop in enumerate(populations_4_clades):
             ax = plt.subplot(srr_gs[0, i])
@@ -1336,7 +1456,7 @@ def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arran
         bbox_alpha = 0.8
 
         if mark_nonclonal_with_horizontal_text:
-            t = plt.text(-2.5, -0.47, 'No clonal structure inferred previously', transform=ax.transAxes, fontsize=SIZESUBLABEL, color='black')
+            t = plt.text(-2.25, -0.46, 'No clonal structure inferred previously', transform=ax.transAxes, fontsize=SIZELABEL, color='black')
             bbox = matplotlib.patches.FancyBboxPatch((-9.55, 6.7), 12.25, 0.8, clip_on=False, linewidth=0.6, edgecolor=bbox_color, facecolor=bbox_color, alpha=bbox_alpha)
             ax.add_patch(bbox)
 
@@ -1426,8 +1546,8 @@ def get_axes_for_performance_on_real_data(plot_single_column=True):
         box_middle = cov_right - divider_width - cov_width
         cov_left = box_middle + divider_width
 
-        perf_left = box_left + 0.07
-        perf_right = box_middle
+        perf_left = box_left + 0.1
+        perf_right = box_middle - 0.1
         perf_bottom = box_bottom - 0.04
         perf_top = 0.28
 
@@ -1459,30 +1579,6 @@ def get_clade_colors_and_labels(num_clades):
 def get_allele_colors(num_alleles):
     allele_colors = sns.husl_palette(min(num_alleles, 50))
     return allele_colors
-
-
-def plot_dxdx_heatmap(dxdx, groups, ylabel_x=-0.21, alpha=0.5, grid_line_offset=0, cbar_shrink=1, xtick_distance=40, save_file=None):
-
-    L = len(dxdx)
-    fig = plt.figure()
-    ax = plt.gca()
-    for l in range(L):
-        dxdx[l, l] = 0
-    heatmap = sns.heatmap(dxdx, center=0, cmap=CMAP, square=True, cbar=True, cbar_kws={"shrink": cbar_shrink})
-    cbar = heatmap.collections[0].colorbar
-    # cbar.ax.tick_params(labelsize=SIZELABEL, length=2, color=)
-    cbar.ax.tick_params(**DEF_TICKPROPS_COLORBAR)
-    xticklabels = np.arange(0, L + xtick_distance // 2, xtick_distance)
-    xticks = [l for l in xticklabels]
-    ticks, ylabels, group_sizes = get_ticks_and_labels_for_clusterization(groups, name='Group', note_size=True)
-    plot_ticks_and_labels_for_clusterization(ticks, ylabels, group_sizes, ylabel_x=ylabel_x)
-    ax.hlines([_ + grid_line_offset for _ in ticks], *ax.get_xlim(), color=GREY_COLOR_HEX, alpha=alpha, linewidth=SIZELINE * 1.2)
-    ax.vlines([_ + grid_line_offset for _ in ticks], *ax.get_ylim(), color=GREY_COLOR_HEX, alpha=alpha, linewidth=SIZELINE * 1.2)
-    set_ticks_labels_axes(yticks=[], yticklabels=[], xticks=xticks, xticklabels=xticklabels)
-    plt.xlabel('Locus index', fontsize=SIZELABEL)
-    plt.show()
-    if save_file:
-        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
 
 
 def plot_cov_heatmap(reconstruction, ylabel_x=-0.21, alpha=0.5, grid_line_offset=0, cbar_shrink=1, xtick_distance=40):
@@ -1572,6 +1668,7 @@ def plot_figure_performance_on_data_PALTE(traj, reconstruction, measured_fitness
     plt.sca(axes[1])
     ax = plt.gca()
     clade_colors, clade_labels = get_clade_colors_and_labels(reconstruction.numClades)
+    clade_colors[4] = 'orange'
     if plot_muller_plot:
         reconstruction.getMullerCladeFreq(mullerColors=clade_colors)
         plt.stackplot(reconstruction.times, reconstruction.mullerCladeFreq.T, colors=reconstruction.mullerColors)
@@ -1599,6 +1696,30 @@ def plot_figure_performance_on_data_PALTE(traj, reconstruction, measured_fitness
     plt.show()
     if save_file:
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
+def plot_figure_fitness_biplot_PALTE(measured_fitness_by_pop, inferred_fitness_by_pop_list, methods=PALTEanalysis.METHODS, alpha=1, xlim=(-1, 10), ylim=None, yticks=None, plot_title=True, save_file=None, figsize=(8, 3)):
+
+    measured_fitness, inferred_fitness_list = PALTEanalysis.parse_fitness_by_pop_into_list(measured_fitness_by_pop, inferred_fitness_by_pop_list)
+    # print(inferred_fitness_list)
+
+    fig, axes = plt.subplots(1, 4, figsize=figsize)
+    xlabel = 'Measured fitness'
+    if ylim is None:
+        ylim = xlim
+        xlim = None
+
+    for i, inferred_fitness in enumerate(inferred_fitness_list):
+        plt.sca(axes[i])
+        ylabel = methods[i]
+        plot_comparison(measured_fitness, inferred_fitness, xlabel, ylabel, alpha=alpha, ylim=ylim, xlim=xlim, yticks=yticks, xticks=yticks, plot_title=plot_title)
+
+    plt.subplots_adjust(wspace=0.4)
+    plt.show()
+    if save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
 
 def plot_figure_performance_on_data_tobramycin(traj, reconstruction, measured_MIC_list, median_inferred_fitness_lists, times=tobramycin_analysis.TIMES_PA, plot_single_column=False, use_pearsonr=False, plot_muller_plot=True, background_width=9, background_height=0.09, background_color='#f2f2f2', methods=tobramycin_analysis.METHODS, alpha=0.5, xticks=np.arange(0, 90, 10), ylim=(-0.03, 1.03), grid_line_offset=-0.02, save_file=None):
 

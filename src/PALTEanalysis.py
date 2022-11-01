@@ -137,6 +137,7 @@ def parse_muller_files(populations, output_dir=LOLIPOP_OUTPUT_DIR):
 
 
 def get_reconstruction_from_traj(traj, times, mu=MU, defaultReg=REG, meanReadDepth=100, thFixed=0.98, thLogProbPerTime=10, thFreqUnconnected=1, debug=False, verbose=False, plot=False, evaluateReconstruction=True, evaluateInference=False):
+    print(defaultReg)
     rec = RC.CladeReconstruction(traj, times=times, meanReadDepth=meanReadDepth, debug=debug, verbose=verbose, plot=plot, mu=mu, useEffectiveMu=False)
     rec.setParamsForClusterization(weightByBothVariance=False, weightBySmallerVariance=True)
     rec.clusterMutations()
@@ -147,7 +148,7 @@ def get_reconstruction_from_traj(traj, times, mu=MU, defaultReg=REG, meanReadDep
     return rec, evaluation, inference
 
 
-def parse_reconstructions():
+def parse_reconstructions(reg=REG):
     reconstructions = {pop: None for pop in POPULATIONS}
     evaluations = {pop: None for pop in POPULATIONS}
     inferences = {pop: None for pop in POPULATIONS}
@@ -155,7 +156,7 @@ def parse_reconstructions():
     for pop in POPULATIONS:
         traj = parse_interpolated_traj(pop)
         (reconstructions[pop], evaluations[pop],
-         inferences[pop]) = get_reconstruction_from_traj(traj, TIMES, mu=MU, evaluateReconstruction=True, evaluateInference=True)
+         inferences[pop]) = get_reconstruction_from_traj(traj, TIMES, defaultReg=reg, mu=MU, evaluateReconstruction=True, evaluateInference=True)
 
     return reconstructions, evaluations, inferences
 
