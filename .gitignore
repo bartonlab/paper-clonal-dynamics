@@ -1,9 +1,9 @@
-# Python files
-__pycache__
+# Local files
 .ipynb_checkpoints
-*/.ipynb_checkpoints
+__pycache__
+figures_deprecated.ipynb
+figures_additional.ipynb
+recombination.ipynb
 
-# Mac hidden files
-.DS_Store
-*/.DS_Store
-*/*/.DS_Store
+# Large files
+data
