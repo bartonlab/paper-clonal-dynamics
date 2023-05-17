@@ -10,10 +10,9 @@ import seaborn as sns
 
 import MPL
 import reconstruct_clades as RC
+import estimate_covariance as EC
 
-COLORS = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
-          '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
-          '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+COLORS = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'] * 10
 
 # Standard color scheme
 
@@ -28,6 +27,29 @@ C_NEU    =  LCOLOR   #'#E8E8E8' # LCOLOR
 C_NEU_LT = '#E8E8E8' #'#F0F0F0' #'#d9d9d9'
 C_DEL    = '#3E8DCF' #'#604A7B'
 C_DEL_LT = '#78B4E7' #'#dadaeb'
+
+USE_COLOR_PALETTE_FROM_MATPLOTLIB = False
+USE_COLOR_PALETTE_FROM_SEABORN = True
+
+if USE_COLOR_PALETTE_FROM_MATPLOTLIB:
+    cmap = matplotlib.cm.get_cmap("Set3")
+    CLADE_COLORS = (GREY_COLOR_HEX,) + cmap.colors[2:8] + cmap.colors[9:]
+    CLADE_COLORS = [GREY_COLOR_HEX, '#1f77b4', '#ff7f0e', '#bd81be', '#b4df69', '#fdcee6', '#bfbbdb', '#cdecc6', '#fc8172' '#10ee6f']
+    # CLADE_COLORS = [GREY_COLOR_RGB, '#81b2d4', '#feb562', '#bfbbdb', '#bd81be', '#b4df69', '#fdcee6', '#cdecc6', '#fc8172' '#10ee6f']
+
+    # cmap = matplotlib.cm.get_cmap("tab10")
+    # ALLELE_COLORS = cmap.colors
+    cmap = matplotlib.cm.get_cmap("hsv")
+    ALLELE_CMAP = cmap
+elif USE_COLOR_PALETTE_FROM_SEABORN:
+    ALLELE_COLORS = sns.husl_palette(20)
+    CLADE_COLORS = [GREY_COLOR_RGB] + sns.husl_palette(10)
+    # SEABORN_COLORS = sns.husl_palette(30)
+    # ALLELE_COLORS = SEABORN_COLORS[:20]
+    # CLADE_COLORS = SEABORN_COLORS[20:]
+
+CMAP = sns.diverging_palette(145, 300, as_cmap=True)
+CMAP_NONCLONAL = sns.diverging_palette(0, 145, as_cmap=True)
 
 LTEE_MAJOR_FIXED_COLOR = '#1f77b4'
 LTEE_MINOR_FIXED_COLOR = '#ff7f0e'
@@ -45,6 +67,11 @@ LTEE_COLORS = {
     6: LTEE_MAJOR_POLYMORPHIC_COLOR, # Major polymorphic
     7: 'yellow', # NA
 }
+
+def cm2inch(x): return float(x)/2.54
+SINGLE_COLUMN = cm2inch(8.5)
+ONE_FIVE_COLUMN = cm2inch(11.4)
+DOUBLE_COLUMN = cm2inch(17.4)
 
 GOLDR        = (1.0 + np.sqrt(5)) / 2.0
 TICKLENGTH   = 3
@@ -76,6 +103,58 @@ DEF_TICKPROPS_HEATMAP = {
     'top'       : False,
     'right'     : False,
     'pad'       : 2,
+}
+
+DEF_FIGPROPS = {
+    'transparent' : True,
+    'edgecolor'   : None,
+    'dpi'         : 1000,
+    # 'bbox_inches' : 'tight',
+    'pad_inches'  : 0.05,
+    'backend'     : 'PGF',
+}
+
+DEF_TICKPROPS_COLORBAR = {
+    'length'    : TICKLENGTH,
+    'width'     : AXWIDTH/2,
+    'pad'       : TICKPAD,
+    'axis'      : 'both',
+    'which'     : 'both',
+    'direction' : 'out',
+    'colors'    : BKCOLOR,
+    'labelsize' : SIZETICK,
+    'bottom'    : False,
+    'left'      : False,
+    'top'       : False,
+    'right'     : True,
+}
+
+DEF_TICKPROPS = {
+    'length'    : TICKLENGTH,
+    'width'     : AXWIDTH/2,
+    'pad'       : TICKPAD,
+    'axis'      : 'both',
+    'which'     : 'both',
+    'direction' : 'out',
+    'colors'    : BKCOLOR,
+    'labelsize' : SIZETICK,
+    'bottom'    : True,
+    'left'      : True,
+    'top'       : False,
+    'right'     : False,
+}
+
+DEF_AXPROPS = {
+    'linewidth' : AXWIDTH,
+    'linestyle' : '-',
+    'color'     : BKCOLOR
+}
+
+DEF_DXDX_MARGINPROPS = {
+    'left': 0.02, 
+    'right': 0.98,
+    'top': 0.98,
+    'bottom': 0.02,
 }
 
 def resetPlottingParams():
@@ -311,7 +390,7 @@ def hamming(seq1, seq2):
     return hamming
 
 
-def plotTraj(traj, times=None, linewidth=None, alphas=None, alpha=1, linestyle='solid', colors=None, labels=None, ylim=(-0.03, 1.03), figsize=(10, 3.3), fontsize=15, title='allele frequency trajectories', annot=False, annotTexts=None, annotXs=None, annotYs=None, plotShow=True, plotFigure=True, plotLegend=False, scatter=False, scatterOnly=False, s=0.5, marker='.', markersize=7):
+def plotTraj(traj, times=None, linewidth=None, alphas=None, alpha=1, linestyle='solid', colors=None, labels=None, ylim=(-0.03, 1.03), figsize=(10, 3.3), fontsize=15, title='allele frequency trajectories', annot=False, annotTexts=None, annotXs=None, annotYs=None, plotShow=True, plotFigure=True, returnFig=False, plotLegend=False, scatter=False, scatterOnly=False, s=0.5, marker='.', markersize=7, marginprops=None, save_file=None):
     T, L = traj.shape
     if times is None:
         times = np.arange(0, T)
@@ -320,7 +399,7 @@ def plotTraj(traj, times=None, linewidth=None, alphas=None, alpha=1, linestyle='
     if colors is None:
         colors = COLORS
     if plotFigure:
-        plt.figure(figsize=figsize)
+        fig = plt.figure(figsize=figsize)
     if annot:
         # Avoid annotation overlapping
         bucketToSite = {}
@@ -356,12 +435,19 @@ def plotTraj(traj, times=None, linewidth=None, alphas=None, alpha=1, linestyle='
                 x, y = times[t], traj[t, l] + 0.05
             plt.text(x, y, f'{annotTexts[l]}', fontsize=fontsize, color=colors[l%len(colors)])
 
+    set_ticks_labels_axes()
+    if marginprops is not None:
+        plt.subplots_adjust(**marginprops)
     plt.ylim(ylim)
     plt.title(title, fontsize=fontsize)
     if labels is not None and plotLegend:
         plt.legend(fontsize=fontsize)
     if plotShow:
         plt.show()
+    if plotFigure and save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+    if returnFig:
+        return fig
 
 
 def plotMatrix(mat, figsize=(4, 4), center=0, cbar=False, plotShow=True, xticklabels=None, yticklabels=None, rotation=30, title=None):
@@ -704,12 +790,13 @@ def plotConstructedClades(cladeMuts, figsize=None):
     plt.show()
 
 
-def plotCladeAndMutFreq(majorCladePolyMuts, cladeFreq, traj, times=None, otherMuts=None, figsize=(10, 3.3), fontsize=15, alpha=0.3, linewidth=1, plotLegend=True):
+def plotCladeAndMutFreq(majorCladePolyMuts, cladeFreq, traj, times=None, otherMuts=None, figsize=(10, 3.3), fontsize=15, alpha=0.3, linewidth=1, plotFigure=True, plotLegend=True, save_file=None):
 
     T, L = traj.shape
     T, numClades = cladeFreq.shape
     times = times if times is not None else np.arange(0, T)
-    plt.figure(figsize=figsize)
+    if plotFigure:
+        fig = plt.figure(figsize=figsize)
     # cladeTraj = cladeFreq.T
     # combined_list = [(np.copy(clades_select[c]), np.copy(cladeTraj[c])) for c in range(numClades)]
     # sorted_list = sorted(combined_list, key = lambda x : - x[1][-1])
@@ -732,6 +819,48 @@ def plotCladeAndMutFreq(majorCladePolyMuts, cladeFreq, traj, times=None, otherMu
     title = ';  '.join([f'clade {k + 1}: {len(majorCladePolyMuts[k])}' for k in range(numClades)])
     plt.title("infer  " + title + f"; Other: {L - np.sum([len(_) for _ in majorCladePolyMuts])}", fontsize=fontsize)
     plt.show()
+    if plotFigure and save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
+def plotCladeAndMutFreq_overview(period, colors=ALLELE_COLORS, ylim=(-0.03, 1.03), clade_index_offset=0, ancestor_clade_index=-1, otherMuts=None, figsize=(SINGLE_COLUMN / 3, SINGLE_COLUMN / 2), fontsize=SIZELABEL, legendsize=SIZELABEL / 1.5, alleleFreqAlpha=0.5, cladeFreqLinestyle='dashed', linewidth=SIZELINE, cladeFreqLinewidth=2*SIZELINE, title=None, plotFigure=True, returnFig=False, plotLegend=True, plotShow=True, marginprops=None, save_file=None):
+    traj, times, cladeFreq, majorCladePolyMuts = period.traj, period.times, period.cladeFreq, period.cladeMuts
+    T, L = traj.shape
+    T, numClades = cladeFreq.shape
+    if times is None:
+        times = np.arange(0, T)
+
+    if plotFigure:
+        fig = plt.figure(figsize=figsize)
+
+    for c in range(numClades):
+        plt.plot(times, cladeFreq[:, c], color=colors[c + clade_index_offset], linestyle=cladeFreqLinestyle, linewidth=cladeFreqLinewidth)
+        for l in majorCladePolyMuts[c]:
+            plt.plot(times, traj[:, l], color=colors[c + clade_index_offset], linewidth=linewidth, alpha=alleleFreqAlpha)
+    plt.plot(times, 1 - np.sum(cladeFreq, axis=1), color=GREY_COLOR_RGB if ancestor_clade_index==-1 else colors[ancestor_clade_index], linestyle=cladeFreqLinestyle, linewidth=cladeFreqLinewidth)
+
+    if otherMuts is not None:
+        for l in otherMuts:
+            # Intentionally made them hard to spot on screen.
+            plt.plot(times, traj[:, l], color='yellow', linewidth=linewidth, alpha=alleleFreqAlpha)
+
+    plt.plot([times[1], times[1] + 0.0001], [-1, -1], linewidth=cladeFreqLinewidth, linestyle=cladeFreqLinestyle, color=GREY_COLOR_RGB, label='Clade')
+    plt.plot([times[1], times[1] + 0.0001], [-1, -1], linewidth=linewidth, color=GREY_COLOR_RGB, alpha=alleleFreqAlpha, label='Allele')
+
+    set_ticks_labels_axes()
+    if marginprops is not None:
+        plt.subplots_adjust(**marginprops)
+    if plotLegend:
+        plt.legend(fontsize=legendsize)
+    plt.ylim(ylim)
+    if title is not None:
+        plt.title(title, fontsize=SIZELABEL)
+    if plotShow:
+        plt.show()
+    if plotFigure and save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+    if returnFig:
+        return fig
 
 
 def plotCladeSitesTraj(traj, cladeMuts, times=None, numClades=2, thFixed=0.75, thExtinct=0.1, alpha=0.3):
@@ -829,12 +958,14 @@ def plotCladeFreqAsBackground(cladeFreq, times=None, onlyOneClade=None, linewidt
         plt.plot(times, cladeFreq[:, k], color=COLORS[k], linewidth=linewidth, linestyle=linestyle, alpha=alpha)
 
 
-def plotMullerCladeFreq(mullerCladeFreq, mullerColors, times, figsize=(10, 3.3), plotFigure=True, plotShow=True):
+def plotMullerCladeFreq(mullerCladeFreq, mullerColors, times, figsize=(10, 3.3), plotFigure=True, plotShow=True, save_file=None):
     if plotFigure:
         fig = plt.figure(figsize=figsize)
     plt.stackplot(times, mullerCladeFreq.T, colors=mullerColors)
     if plotShow:
         plt.show()
+    if plotFigure and save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
 
 
 
@@ -872,6 +1003,221 @@ def plotCov(cov, figsize=(4, 4), plotShow=True):
                 cmap=sns.diverging_palette(145, 300, as_cmap=True))
     if plotShow:
         plt.show()
+
+
+def plotSegmentedIntCov(reconstruction, ylabel_x=-0.21, alpha=0.5, grid_line_offset=0, cbar_shrink=1, xtick_distance=40, plot_cbar=True, plot_yticks=True, plot_xticks=True, vmin=None, vmax=None, figsize=(SINGLE_COLUMN/2, SINGLE_COLUMN/2), plotShow=True, save_file=None):
+
+    fig = plt.figure(figsize=figsize)
+    ax = plt.gca()
+
+    int_cov = reconstruction.recoveredIntCov
+    clades = [reconstruction.otherMuts] + reconstruction.cladeMuts
+    segmented_int_cov = segmentMatrix(int_cov, clades)[0]
+    L = len(segmented_int_cov)
+
+    heatmap = sns.heatmap(segmented_int_cov, center=0, vmin=vmin, vmax=vmax, cmap=CMAP, square=True, cbar=plot_cbar, cbar_kws={"shrink": cbar_shrink})
+
+    if plot_cbar:
+        cbar = heatmap.collections[0].colorbar
+        cbar.ax.tick_params(**DEF_TICKPROPS_COLORBAR)
+
+    if plot_yticks:
+        ticks, ylabels, group_sizes = get_ticks_and_labels_for_clusterization(clades, name='Clade', note_size=True)
+        plot_ticks_and_labels_for_clusterization(ticks, ylabels, group_sizes, ylabel_x=ylabel_x)
+        ax.hlines([_ + grid_line_offset for _ in ticks], *ax.get_xlim(), color=GREY_COLOR_HEX, alpha=alpha, linewidth=SIZELINE * 1.2)
+        ax.vlines([_ + grid_line_offset for _ in ticks], *ax.get_ylim(), color=GREY_COLOR_HEX, alpha=alpha, linewidth=SIZELINE * 1.2)
+
+    if plot_xticks:
+        xticklabels = np.arange(0, L + xtick_distance // 2, xtick_distance)
+        xticks = [l for l in xticklabels]
+        plt.xlabel('Locus index', fontsize=SIZELABEL)
+    else:
+        xticks, xticklabels = [], []
+
+    set_ticks_labels_axes(yticks=[], yticklabels=[], xticks=xticks, xticklabels=xticklabels)
+
+    if plotShow:
+        plt.show()
+    if save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
+def plotSegmentedIntDxdx(reconstruction, normalize=False, segment_line_color=GREY_COLOR_HEX, ylabel_x=-0.21, alpha=0.5, grid_line_offset=0, linewidth=2 * SIZELINE, cbar_shrink=1, xtick_distance=4, plot_cbar=True, plot_yticks=True, plot_xticks=True, vmin=None, vmax=None, figsize=(SINGLE_COLUMN/2, SINGLE_COLUMN/2), plotFigure=True, returnFig=False, plotShow=True, save_file=None):
+
+    if plotFigure:
+        fig = plt.figure(figsize=figsize)
+    ax = plt.gca()
+
+    segmentedIntDxdx, groups = reconstruction.segmentedIntDxdx
+    L = len(segmentedIntDxdx)
+    for l in range(L):
+        segmentedIntDxdx[l, l] = 0
+    if normalize:
+        segmentedIntDxdx = normalize_segmentedIntDxdx(segmentedIntDxdx)
+
+    heatmap = sns.heatmap(segmentedIntDxdx, center=0, vmin=vmin, vmax=vmax, cmap=CMAP, square=True, cbar=plot_cbar, cbar_kws={"shrink": cbar_shrink})
+    
+    if plot_cbar:
+        cbar = heatmap.collections[0].colorbar
+        cbar.ax.tick_params(**DEF_TICKPROPS_COLORBAR)
+    ticks, ylabels, group_sizes = get_ticks_and_labels_for_clusterization(groups, name='Group', note_size=True)
+    
+    if plot_yticks:
+        plot_ticks_and_labels_for_clusterization(ticks, ylabels, group_sizes, ylabel_x=ylabel_x)
+    ax.hlines([_ + grid_line_offset for _ in ticks], *ax.get_xlim(), color=segment_line_color, alpha=alpha, linewidth=linewidth)
+    ax.vlines([_ + grid_line_offset for _ in ticks], *ax.get_ylim(), color=segment_line_color, alpha=alpha, linewidth=linewidth)
+
+    if plot_xticks:
+        xticklabels = np.arange(0, L + xtick_distance // 2, xtick_distance)
+        xticks = [l for l in xticklabels]
+        plt.xlabel('Locus index', fontsize=SIZELABEL)
+    else:
+        xticks, xticklabels = [], []
+
+    set_ticks_labels_axes(yticks=[], yticklabels=[], xticks=xticks, xticklabels=xticklabels)
+    plt.subplots_adjust(**DEF_DXDX_MARGINPROPS)
+
+    if plotShow:
+        plt.show()
+    if plotFigure and save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+    if plotFigure and returnFig:
+        return fig
+
+
+def normalize_segmentedIntDxdx(segmentedIntDxdx_, scale=0.3):
+    segmentedIntDxdx = np.copy(segmentedIntDxdx_)
+    L = len(segmentedIntDxdx)
+    offDiagonalTerms = EC.get_off_diagonal_terms(segmentedIntDxdx)
+    vmin, vmax = np.min(offDiagonalTerms), np.max(offDiagonalTerms)
+
+    # Normalize all magnitudes between [0, 1]
+    for l1 in range(L):
+        segmentedIntDxdx[l1, l1] = 0
+        for l2 in range(l1):
+            if segmentedIntDxdx[l1, l2] < 0:
+                segmentedIntDxdx[l1, l2] /= -vmin
+                segmentedIntDxdx[l2, l1] = segmentedIntDxdx[l1, l2]
+            elif segmentedIntDxdx[l1, l2] > 0:
+                segmentedIntDxdx[l1, l2] /= vmax
+                segmentedIntDxdx[l2, l1] = segmentedIntDxdx[l1, l2]
+
+    # Push magnitudes toward 1
+    # print(segmentedIntDxdx[0, :3])
+    for l1 in range(L):
+        for l2 in range(l1):
+            if segmentedIntDxdx[l1, l2] < 0:
+                segmentedIntDxdx[l1, l2] = -(-segmentedIntDxdx[l1, l2]) ** scale
+                segmentedIntDxdx[l2, l1] = segmentedIntDxdx[l1, l2]
+            elif segmentedIntDxdx[l1, l2] > 0:
+                segmentedIntDxdx[l1, l2] = segmentedIntDxdx[l1, l2] ** scale
+                segmentedIntDxdx[l2, l1] = segmentedIntDxdx[l1, l2]
+    # print(segmentedIntDxdx[0, :3])
+    return segmentedIntDxdx
+
+
+def plotIntDxdx(intWeightedDxdx, ylabel_x=-0.21, alpha=0.5, grid_line_offset=0, cbar_shrink=1, xtick_distance=4, plot_cbar=True, plot_xticks=True, vmin=None, vmax=None, figsize=(SINGLE_COLUMN/2, SINGLE_COLUMN/2), plotFigure=True, plotShow=True, save_file=None):
+
+    if plotFigure:
+        fig = plt.figure(figsize=figsize)
+    ax = plt.gca()
+
+    L = len(intWeightedDxdx)
+    for l in range(L):
+        intWeightedDxdx[l, l] = 0
+
+    heatmap = sns.heatmap(intWeightedDxdx, center=0, vmin=vmin, vmax=vmax, cmap=CMAP, square=True, cbar=plot_cbar, cbar_kws={"shrink": cbar_shrink})
+    
+    if plot_cbar:
+        cbar = heatmap.collections[0].colorbar
+        cbar.ax.tick_params(**DEF_TICKPROPS_COLORBAR)
+    
+    if plot_xticks:
+        xticklabels = np.arange(0, L + xtick_distance // 2, xtick_distance)
+        xticks = [l for l in xticklabels]
+        plt.xlabel('Locus index', fontsize=SIZELABEL)
+    else:
+        xticks, xticklabels = [], []
+
+    set_ticks_labels_axes(yticks=[], yticklabels=[], xticks=xticks, xticklabels=xticklabels)
+    plt.subplots_adjust(**DEF_DXDX_MARGINPROPS)
+
+    if plotShow:
+        plt.show()
+    if save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
+def segmentMatrix(matrix, groups):
+    sites_sorted, groups_sorted = [], []
+    for group in groups:
+        group_sorted = sorted(group, key=lambda site: -np.sum(matrix[site, group]))
+        groups_sorted.append(group_sorted)
+        sites_sorted += group_sorted
+    L = len(sites_sorted)
+    seg = np.zeros((L, L))
+    for i, s1 in enumerate(sites_sorted):
+        seg[i, i] = matrix[s1, s1]
+        for j in range(i + 1, L):
+            s2 = sites_sorted[j]
+            seg[i, j] = matrix[s1, s2]
+            seg[j, i] = seg[i, j]
+    return seg, groups_sorted
+
+
+def get_ticks_and_labels_for_clusterization(groups_sorted, name='Group', note_size=False):
+    group_sizes = [int(len(group)) for group in groups_sorted]
+    # if group_sizes[0] == 0:
+    #     group_sizes = group_sizes[1:]
+    ticks = [np.sum(group_sizes[:i]) for i in range(2, len(group_sizes) + 1)]
+    labels = [f'{name} {i}' for i in range(1, len(groups_sorted))]
+    if len(groups_sorted[0]) > 0:
+        labels = ['Shared'] + labels
+        ticks = [group_sizes[0]] + ticks
+    size_index_offset = (len(groups_sorted[0])==0)
+    if note_size:
+        labels = [f'{_} ({group_sizes[i+size_index_offset]})' for i, _ in enumerate(labels)]
+    return ticks, labels, group_sizes
+
+
+def plot_ticks_and_labels_for_clusterization(ticks, ylabels, group_sizes, ylabel_x=-0.15):
+    ax = plt.gca()
+    if group_sizes[0] == 0:
+        group_sizes = group_sizes[1:]
+    L = np.sum(group_sizes)
+    for g, size in enumerate(group_sizes):
+        tick = ticks[g]
+        ylabel_y = 0.99 - (tick - size / 2) / L
+        ax.text(ylabel_x, ylabel_y, ylabels[g], transform=ax.transAxes, fontsize=SIZELABEL)
+
+
+def set_ticks_labels_axes(xlim=None, ylim=None, xticks=None, xticklabels=None, yticks=None, yticklabels=None, xlabel=None, ylabel=None):
+
+    ax = plt.gca()
+
+    if xlim is not None:
+        plt.xlim(xlim)
+    if ylim is not None:
+        plt.ylim(ylim)
+
+    if xticks is not None and xticklabels is not None:
+        plt.xticks(ticks=xticks, labels=xticklabels, fontsize=SIZELABEL, rotation=0)
+    else:
+        plt.xticks(fontsize=SIZELABEL)
+
+    if yticks is not None and yticklabels is not None:
+        plt.yticks(ticks=yticks, labels=yticklabels, fontsize=SIZELABEL)
+    else:
+        plt.yticks(fontsize=SIZELABEL)
+
+    if xlabel is not None:
+        plt.xlabel(xlabel, fontsize=SIZELABEL)
+
+    if ylabel is not None:
+        plt.ylabel(ylabel, fontsize=SIZELABEL)
+
+    ax.tick_params(**DEF_TICKPROPS)
+    plt.setp(ax.spines.values(), **DEF_AXPROPS)
 
 
 def plotCovList(cov_list, figsize=(20, 15), nCol=5, fontsize=15, plotTitle=True, titles=None, cbar=False, vmin=None, vmax=None):
@@ -1052,9 +1398,6 @@ def checkSelectionByTrueCov(summaries, start_n=0, figsize=(10, 9), nCol=3, fonts
 
     plt.subplots_adjust(hspace=hspace, wspace=wspace)
     plt.show()
-
-
-
 
 
 def plotFitnessForSimulations(summaries, index=3, times=None, titles=None, compareFitnessList=None, compareLabel=None, compareEstCov=True, start_n=0, figsize=(20, 15), nCol=5, fontsize=15, plotSL=False, ylims=None, ylim=None, ommitXticks=True, ommitYticks=True):

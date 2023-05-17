@@ -70,6 +70,16 @@ def bottomK(a, k):
     return a[indices[:k]]
 
 
+def computeTimeIntervals(times):
+    """Computes intervals in between each two adjacent time points."""
+
+    T = len(times) - 1
+    timeIntervals = np.zeros(T)
+    for t in range(T):
+        timeIntervals[t] = times[t + 1] - times[t]
+    return timeIntervals
+
+
 def computeDx(traj):
     """Computes change of frequency by next generation at each time point."""
 
@@ -90,6 +100,32 @@ def computeDxdx(traj):
     for t in range(T):
         dxdx[t] = np.outer(dx[t], dx[t])
     return dxdx
+
+
+def computeIntWeightedDxdx(reconstruction, start, end):
+    dxdx = computeDxdx(reconstruction.traj)
+    if reconstruction.weightByBothVariance:
+        weightedDxdx = reconstruction.weightDxdxByBothVariance(dxdx)
+    elif reconstruction.weightBySmallerVariance:
+        weightedDxdx = reconstruction.weightDxdxBySmallerVariance(dxdx)
+    elif reconstruction.weightBySmallerInterpolatedVariance:
+        weightedDxdx = reconstruction.weightDxdxBySmallerInterpolatedVariance(dxdx)
+    else:
+        weightedDxdx = dxdx
+
+    if len(reconstruction.times) > 1:
+        intWeightedDxdx = np.zeros((reconstruction.L, reconstruction.L))
+        timeIntervals = computeTimeIntervals(reconstruction.times)
+        for t in range(start, min(end, len(weightedDxdx))):
+            intWeightedDxdx += weightedDxdx[t] / timeIntervals[t]
+        intWeightedDxdx *= np.mean(timeIntervals)
+    else:
+        intWeightedDxdx = np.sum(weightedDxdx, axis=0)
+
+    for l in range(reconstruction.L):
+        intWeightedDxdx[l, l] = 0
+
+    return intWeightedDxdx
 
 
 def computeIntegratedVariance(traj, times):
@@ -286,6 +322,51 @@ def computeLogBinomialProbability(freq, freq_sampled, readDepth, uncertainty=EPS
         return 0
 
 
+def get_clade_size_from_reconstruction(reconstruction):
+    return [len(reconstruction.otherMuts)] + [len(_) for _ in reconstruction.cladeMuts]
+
+
+def check_consistency_between_two_reconstructions_approximately(rec1, rec2):
+    return np.array_equal(get_clade_size_from_reconstruction(rec1), get_clade_size_from_reconstruction(rec2))
+
+
+def print_signal_percentage_by_number_of_groups(rec):
+    groups, segmentedIntDxdx = rec.groups, rec.segmentedIntDxdx[0]
+    signals = get_signals_by_number_of_groups(groups, segmentedIntDxdx)
+        
+    total_signal = signals[-1]
+    percentages = [round(signal / total_signal, 3) for signal in signals]
+    print(percentages)
+
+
+def get_signals_by_number_of_groups(groups, segmentedIntDxdx):
+    for l in range(len(segmentedIntDxdx)):
+        segmentedIntDxdx[l, l] = 0
+    signals = []
+    start = len(groups[0])
+    end = len(groups[0])
+    for i, group in enumerate(groups[1:]):
+        n = len(group)
+        end += n
+        signal = np.sum(np.absolute(segmentedIntDxdx[start:end, start:end]))
+        signals.append(signal)
+    return signals
+
+
+def print_presence_percentage_of_each_group(rec, atLeast=10, largerThan=0.3):
+    num_muts = get_num_muts_with_descent_presence_in_each_group(rec.traj, rec.groups, atLeast=atLeast, largerThan=largerThan)
+    total_num = np.sum(num_muts)
+    percentages = [round(num / total_num, 3) for num in num_muts]
+    print(percentages)
+
+
+def get_num_muts_with_descent_presence_in_each_group(traj, groups, atLeast=10, largerThan=0.3):
+    """
+    Returns how many mutations in a group has frequency > {largerThan} for at least {atLeast} time points.
+    """
+    return [len([l for l in group if np.sort(traj[:, l])[-atLeast] > largerThan]) for group in groups[1:]]
+
+
 class CladeReconstruction:
     NEWCLADE = -1
     def __init__(self, traj, times=None, mu=None, useEffectiveMu=True, meanReadDepth=100, mutantReads=None, readDepths=None, hasInterpolation=False, segmentedIntDxdx=None, groups=None, debug=False, verbose=False, plot=True, timing=False):
@@ -310,6 +391,7 @@ class CladeReconstruction:
         self.timing = timing
 
         # To be constructed
+        self.intWeightedDxdx = None
         self.segmentedIntDxdx = segmentedIntDxdx
         self.groups = groups
         self.cladeFreq = None  # clade frequency trajectories, excluding the ancestor clade.
@@ -332,15 +414,16 @@ class CladeReconstruction:
             print('took: %lfs' % (timer() - start))
 
 
-    def setParamsForClusterization(self, debug=None, weightByBothVariance=False, weightBySmallerVariance=True, timing=False):
+    def setParamsForClusterization(self, debug=None, weightByBothVariance=False, weightBySmallerVariance=False, weightBySmallerInterpolatedVariance=True, timing=False):
         if debug is not None:
             self.debug = debug
         self.timing = timing
         self.weightByBothVariance = weightByBothVariance
         self.weightBySmallerVariance = weightBySmallerVariance
+        self.weightBySmallerInterpolatedVariance = weightBySmallerInterpolatedVariance
 
 
-    def setParamsForReconstruction(self, debug=None, thFixed=0.99, thExtinct=0, thFixedWithinClade=0.9, numClades=None, percentMutsToIncludeInMajorClades=90, preservedPercent=0.5, thLogProbPerTime=10, thFreqUnconnected=0.04, timing=False):
+    def setParamsForReconstruction(self, debug=None, thFixed=0.99, thExtinct=0, thFixedWithinClade=0.9, numClades=None, percentSignalsToIncludeInMajorClades=99, percentMutsToIncludeInMajorClades=95, preservedPercent=0.5, thLogProbPerTime=10, thFreqUnconnected=0.04, filterThresholds=(5, 0.2), timing=False):
         if debug is not None:
             self.debug = debug
         self.timing = timing
@@ -349,7 +432,9 @@ class CladeReconstruction:
         self.thFixedWithinClade = thFixedWithinClade
         self.numClades = numClades
         if numClades is None:
-            self.percentMutsToIncludeInMajorClades = percentMutsToIncludeInMajorClades
+            self.percentSignalsToIncludeInMajorClades = percentSignalsToIncludeInMajorClades
+            self.percentMutsToIncludeInMajorClades = percentMutsToIncludeInMajorClades  # deprecated
+            self.filterThresholds = filterThresholds  # deprecated
         self.preservedPercent = preservedPercent
         self.thLogProbPerTime = thLogProbPerTime
         self.thFreqUnconnected = thFreqUnconnected
@@ -453,9 +538,18 @@ class CladeReconstruction:
             weightedDxdx = self.weightDxdxByBothVariance(dxdx)
         elif self.weightBySmallerVariance:
             weightedDxdx = self.weightDxdxBySmallerVariance(dxdx)
+        elif self.weightBySmallerInterpolatedVariance:
+            weightedDxdx = self.weightDxdxBySmallerInterpolatedVariance(dxdx)
         else:
             weightedDxdx = dxdx
-        intWeightedDxdx = np.sum(weightedDxdx, axis=0)
+        if len(self.times) > 1:
+            intWeightedDxdx = np.zeros((self.L, self.L))
+            timeIntervals = computeTimeIntervals(self.times)
+            for t in range(len(weightedDxdx)):
+                intWeightedDxdx += weightedDxdx[t] / timeIntervals[t]
+            intWeightedDxdx *= np.mean(timeIntervals)
+        else:
+            intWeightedDxdx = np.sum(weightedDxdx, axis=0)
         for l in range(self.L):
             intWeightedDxdx[l, l] = float('inf')
 
@@ -513,6 +607,7 @@ class CladeReconstruction:
             print()
 
         self.groups = [self.groups[0]] + sorted(self.groups[1:], key=lambda x : - len(x))
+        self.intWeightedDxdx = intWeightedDxdx
         self.segmentedIntDxdx = segmentMatrix(intWeightedDxdx, self.groups)
         if self.verbose:
             print(f'{bcolors.OKGREEN}> Forming groups from dxdx matrix...')
@@ -522,23 +617,40 @@ class CladeReconstruction:
 
     def weightDxdxByBothVariance(self, dxdx):
         for t in range(len(dxdx)):
+            var = [self.traj[t, i] * (1 - self.traj[t, i]) for i in range(self.L)]
             for i in range(self.L):
                 for j in range(i + 1, self.L):
-                    dxdx[t, i, j] *= math.sqrt(self.traj[t, i] * (1 - self.traj[t, i]) * self.traj[t, j] * (1 - self.traj[t, j]))
+                    dxdx[t, i, j] *= math.sqrt(var[i] * var[j])
                     dxdx[t, j, i] = dxdx[t, i, j]
         return dxdx
 
 
     def weightDxdxBySmallerVariance(self, dxdx):
         for t in range(len(dxdx)):
+            var = [self.traj[t, i] * (1 - self.traj[t, i]) for i in range(self.L)]
             for i in range(self.L):
                 for j in range(i + 1, self.L):
-                    dxdx[t, i, j] *= min(self.traj[t, i] * (1 - self.traj[t, i]), self.traj[t, j] * (1 - self.traj[t, j]))
+                    dxdx[t, i, j] *= min(var[i], var[j])
+                    dxdx[t, j, i] = dxdx[t, i, j]
+        return dxdx
+
+
+    def weightDxdxBySmallerInterpolatedVariance(self, dxdx):
+        for t in range(len(dxdx)):
+            interpolated_freq = [(self.traj[t, i] + self.traj[t + 1, i]) / 2 for i in range(self.L)]
+            var = [interpolated_freq[i] * (1 - interpolated_freq[i]) for i in range(self.L)]
+            for i in range(self.L):
+                for j in range(i + 1, self.L):
+                    dxdx[t, i, j] *= min(var[i], var[j])
                     dxdx[t, j, i] = dxdx[t, i, j]
         return dxdx
 
 
     def checkForSeparablePeriod(self, dedupCladeFixedEvents=True, detectFixationInSharedGroupAfterOneGroupFixes=True, checkForSharedMuts=False):
+        """
+        Returns cladeFixedEventsDedup, a list of tuples (clade_index, time_fixed_index, signature_mutation_index)
+        """
+
         if self.numClades is None:
             self.setNumCladesAutomatically()
         cladeFixedEvents = []
@@ -585,13 +697,13 @@ class CladeReconstruction:
                     if k != cladeFixedEvents[i - 1][0]:
                         cladeFixedEventsDedup.append(event)
         else:
-            # Not deduplicate
+            # No deduplication
             cladeFixedEventsDedup = cladeFixedEvents
 
         return cladeFixedEventsDedup
 
 
-    def checkForSeparablePeriodAndReconstruct(self, dedupCladeFixedEvents=True, detectFixationInSharedGroupAfterOneGroupFixes=True, checkForSharedMuts=False, minDurationTimepoint=3, minDurationRatio=0.05, cladeFixedTimes=None):
+    def checkForSeparablePeriodAndReconstruct(self, dedupCladeFixedEvents=True, detectFixationInSharedGroupAfterOneGroupFixes=True, checkForSharedMuts=False, minDurationTimepoint=3, minDurationRatio=0.05, cladeFixedTimes=None, startEndToGroups=None, startEndToDxdx=None):
         """
         The full period of all time points available might be divided into 2 or more periods, if at some time point, the population gets dominated by a clade and the subsequently branches into several sub-clades of it, in which case the reconstruction is better to be done seperately for each period.
         """
@@ -599,7 +711,7 @@ class CladeReconstruction:
             cladeFixedEventsDedup = self.checkForSeparablePeriod(dedupCladeFixedEvents=dedupCladeFixedEvents, detectFixationInSharedGroupAfterOneGroupFixes=detectFixationInSharedGroupAfterOneGroupFixes, checkForSharedMuts=checkForSharedMuts)
 
             if cladeFixedEventsDedup:
-                cladeFixedTimes = list(np.unique([event[1] for event in cladeFixedEventsDedup]))
+                cladeFixedTimes = sorted(list(np.unique([event[1] for event in cladeFixedEventsDedup])))
                 # Merge periods that are too short
                 durations = []
                 for i in range(len(cladeFixedTimes) + 1):
@@ -612,19 +724,19 @@ class CladeReconstruction:
                     durations.append(duration)
                 if self.debug:
                     print('Durations of periods: ', durations)
-                timeToRemove = []
+                timeToRemove = set()
                 for i in range(len(cladeFixedTimes) + 1):
                     if durations[i] < max(minDurationTimepoint, self.T * minDurationRatio):
                         if i == 0:
-                            timeToRemove.append(cladeFixedTimes[i])
+                            timeToRemove.add(cladeFixedTimes[i])
                         elif i == len(cladeFixedTimes):
-                            timeToRemove.append(cladeFixedTimes[i-1])
+                            timeToRemove.add(cladeFixedTimes[i-1])
                         else:
                             # Merge this period into the shorter period of two adjacent periods
                             if durations[i-1] < durations[i+1]:
-                                timeToRemove.append(cladeFixedTimes[i-1])
+                                timeToRemove.add(cladeFixedTimes[i-1])
                             else:
-                                timeToRemove.append(cladeFixedTimes[i])
+                                timeToRemove.add(cladeFixedTimes[i])
                 for t in timeToRemove:
                     cladeFixedTimes.remove(t)
         else:
@@ -639,11 +751,23 @@ class CladeReconstruction:
             for i in range(len(cladeFixedTimes)):
                 tStart = cladeFixedTimes[i - 1] if i > 0 else 0
                 tEnd = cladeFixedTimes[i] + 1
+                if startEndToGroups is not None and startEndToDxdx is not None:
+                    key = min(startEndToGroups, key=lambda x: abs(x[0] - tStart) + abs(x[1] - tEnd))
+                    groups = startEndToGroups[key]
+                    segmentedIntDxdx = startEndToDxdx[key]
+                else:
+                    groups = None
                 self.periodBoundaries.append((tStart, tEnd))
-                self.periods.append(self.reconstructForPeriod(tStart, tEnd))
+                self.periods.append(self.reconstructForPeriod(tStart, tEnd, groups=groups, segmentedIntDxdx=segmentedIntDxdx))
             tStart, tEnd = cladeFixedTimes[-1], self.T
+            if startEndToGroups is not None and startEndToDxdx is not None:
+                key = min(startEndToGroups, key=lambda x: abs(x[0] - tStart) + abs(x[1] - tEnd))
+                groups = startEndToGroups[key]
+                segmentedIntDxdx = startEndToDxdx[key]
+            else:
+                groups = None
             self.periodBoundaries.append((tStart, tEnd))
-            self.periods.append(self.reconstructForPeriod(tStart, tEnd))
+            self.periods.append(self.reconstructForPeriod(tStart, tEnd, groups=groups, segmentedIntDxdx=segmentedIntDxdx))
 
             self.connectCladeFreq()
             self.getMullerCladeFreq()
@@ -668,8 +792,14 @@ class CladeReconstruction:
                         _.append(emergenceTimes[signatureMut])
                         # print(f'clade {clade}, signature mutation {signatureMut}, emerges at time {emergenceTimes[signatureMut]}')
                 tEndRefined = max(np.min(_), tStartRefined + self.minRefinedPeriodLength)
+                if startEndToGroups is not None:
+                    key = min(startEndToGroups, key=lambda x: abs(x[0] - tStartRefined) + abs(x[1] - max(tEndRefined, tStart)))
+                    groups = startEndToGroups[key]
+                    segmentedIntDxdx = startEndToDxdx[key]
+                else:
+                    groups = None
                 self.refinedPeriodBoundaries.append((tStartRefined, max(tEndRefined, tStart)))
-                self.refinedPeriods.append(self.reconstructForPeriod(tStartRefined, max(tEndRefined, tStart)))
+                self.refinedPeriods.append(self.reconstructForPeriod(tStartRefined, max(tEndRefined, tStart), groups=groups, segmentedIntDxdx=segmentedIntDxdx))
 
             if self.plot:
                 print("cladeFixedTimes =", cladeFixedTimes)
@@ -689,8 +819,8 @@ class CladeReconstruction:
                 PLOT.plotMullerCladeFreq(self.mullerCladeFreq, self.mullerColors, self.times)
 
 
-    def reconstructForPeriod(self, tStart, tEnd):
-        period = CladeReconstruction(self.traj[tStart:tEnd], times=self.times[tStart:tEnd], debug=self.debug, verbose=self.verbose)
+    def reconstructForPeriod(self, tStart, tEnd, groups=None, segmentedIntDxdx=None):
+        period = CladeReconstruction(self.traj[tStart:tEnd], times=self.times[tStart:tEnd], debug=self.debug, verbose=self.verbose, groups=groups, segmentedIntDxdx=segmentedIntDxdx)
         period.setParamsForClusterization(weightByBothVariance=self.weightByBothVariance, weightBySmallerVariance=self.weightBySmallerVariance)
         period.setParamsForReconstruction(thFixed=self.thFixed, thExtinct=self.thExtinct, percentMutsToIncludeInMajorClades=self.percentMutsToIncludeInMajorClades, preservedPercent=self.preservedPercent, thLogProbPerTime=self.thLogProbPerTime)
 
@@ -805,18 +935,43 @@ class CladeReconstruction:
 
     def setNumCladesAutomatically(self):
         """
-        Sets self.numClades (the number of clades to reconstruct) to include more than x% of mutations, where x is self.percentMutsToIncludeInMajorClades.
+        Sets self.numClades (the number of clades to reconstruct) to include more than x% signals, where x is self.percentMutsToIncludeInMajorClades.
         """
-        numIncluded = 0
-        numMutsNotShared = self.L - len(self.groups[0]) # self.groups[0] contains shared mutations
-        for k, clade in enumerate(self.groups[1:]):
-            numIncluded += len(clade)
-            # print(k, numIncluded, numMutsNotShared)
-            if numIncluded >= self.percentMutsToIncludeInMajorClades / 100 * numMutsNotShared and numIncluded >= 2:
-                self.numClades = k + 1
+        signals = get_signals_by_number_of_groups(self.groups, self.segmentedIntDxdx[0])
+        total_signal = signals[-1]
+        for i, signal in enumerate(signals):
+            # print(f'i={i}, %.3f' % (signal / total_signal))
+            if signal >= self.percentSignalsToIncludeInMajorClades / 100 * total_signal:
+                self.numClades = i + 1
                 break
+        # print(self.numClades, len(self.groups) - 1)
         if self.debug:
             print(f'{bcolors.OKBLUE}> Automatically set numClades={self.numClades}')
+
+
+    # def setNumCladesAutomatically(self):
+    #     """
+    #     Sets self.numClades (the number of clades to reconstruct) to include more than x% of mutations, where x is self.percentMutsToIncludeInMajorClades.
+    #     """
+    #     atLeast, largerThan = self.filterThresholds
+
+    #     if self.T >= 20 or self.L >= 100:
+    #         numMutsForGroups = get_num_muts_with_descent_presence_in_each_group(self.traj, self.groups, atLeast=atLeast, largerThan=largerThan)
+    #     else:
+    #         numMutsForGroups = [len(group) for group in self.groups[1:]]
+
+    #     # PRINT.printNumSignificantMutsInGroups(numMutsForGroups)
+    #     numMutsNotShared = np.sum(numMutsForGroups)
+
+    #     numIncluded = 0
+    #     for k, group in enumerate(self.groups[1:]):
+    #         numIncluded += numMutsForGroups[k]
+    #         # print(k, numIncluded, numMutsNotShared)
+    #         if numIncluded >= self.percentMutsToIncludeInMajorClades / 100 * numMutsNotShared and numIncluded >= 1:
+    #             self.numClades = k + 1
+    #             break
+    #     if self.debug:
+    #         print(f'{bcolors.OKBLUE}> Automatically set numClades={self.numClades}')
 
 
     def extractPolyCladeMuts(self):
@@ -952,10 +1107,12 @@ class CladeReconstruction:
         return coopScore
 
 
-    def getCooperationScore(self, traj1, traj2):
+    def getCooperationScore(self, traj1, traj2, times=None):
         """
         Computes 'cooperation' score, which measures to what extent do two trajectories tend to change in the same direction.
         """
+        if times is None:
+            times = self.times
         score = 0
         dx1 = computeDx(np.expand_dims(traj1, axis=-1))[:, 0]
         dx2 = computeDx(np.expand_dims(traj2, axis=-1))[:, 0]
@@ -963,9 +1120,18 @@ class CladeReconstruction:
             weight = np.array([sqrt(var(traj1[t]) * var(traj2[t])) for t in range(len(traj1) - 1)])
         elif self.weightBySmallerVariance:
             weight = np.array([min(var(traj1[t]), var(traj2[t])) for t in range(len(traj1) - 1)])
+        elif self.weightBySmallerInterpolatedVariance:
+            traj1_intpl = [(traj1[t] + traj1[t + 1]) / 2 for t in range(len(traj1) - 1)]
+            traj2_intpl = [(traj2[t] + traj2[t + 1]) / 2 for t in range(len(traj1) - 1)]
+            weight = np.array([min(var(traj1_intpl[t]), var(traj2_intpl[t])) for t in range(len(traj1) - 1)])
         else:
             weight = np.full(len(traj1) - 1, 1)
-        score = np.sum(dx1 * dx2 * weight)
+        if len(times) > 1:
+            timeIntervals = computeTimeIntervals(times)
+            # print(dx1.shape, dx2.shape, weight.shape, timeIntervals.shape)
+            score = np.sum(dx1 * dx2 * weight / timeIntervals) * np.mean(timeIntervals)
+        else:
+            score = np.sum(dx1 * dx2 * weight)
         return score
 
 
@@ -1118,7 +1284,7 @@ class CladeReconstruction:
             if coopScoreOtherMuts[i, cladeCandidate] > coopScoreThresholds[k]:
                 # probable by traj?
                 probBelong = np.argmax(logProb[i])
-                if logProb[i, probBelong] - logProb[i, cladeCandidate] < self.thLogProbPerTime * numTimePointsCompared:
+                if logProb[i, probBelong] - logProb[i, cladeCandidate] <= self.thLogProbPerTime * numTimePointsCompared:
                     incorporated.append((l, cladeCandidate))
                     incorporated_indices.append(i)
                     self.cladeMuts[cladeCandidate].append(l)
@@ -1279,7 +1445,7 @@ class CladeReconstruction:
                                 highestFreq = np.max(period.traj[t, period.cladeMuts[nextAncestor]])
                                 period.cladeFreq[t, nextAncestor] = max(min(gradient[t] * highestFreq, highestPossibleFreqs[t]), period.cladeFreq[t, nextAncestor])
                         missingFreq = period.cladeFreq[:, nextAncestor] - originalTraj
-                        sortedCladesToModify = sorted([k for k in cladesToModify], key=lambda k: self.getCooperationScore(period.cladeFreq[:, k], period.cladeFreq[:, nextAncestor]))
+                        sortedCladesToModify = sorted([k for k in cladesToModify], key=lambda k: self.getCooperationScore(period.cladeFreq[:, k], period.cladeFreq[:, nextAncestor], times=period.times))
                         for t in range(len(period.cladeFreq)):
                             for k in sortedCladesToModify:
                                 tmpFreq = max(0, period.cladeFreq[t, k] - missingFreq[t])
@@ -1638,7 +1804,7 @@ class CladeReconstruction:
                 tMid = (tStart + tEnd) / 2
                 if emergenceTimes[l] >= lastTMid and emergenceTimes[l] < tEnd:
                     if l not in mutToCladeAndConfidence:
-                        mutToCladeAndConfidence[l] = (self.ancestorIndices[i], self.getCooperationScore(self.traj[:tEnd, l], self.cladeFreqWithAncestor[:tEnd, self.ancestorIndices[i]]))
+                        mutToCladeAndConfidence[l] = (self.ancestorIndices[i], self.getCooperationScore(self.traj[:tEnd, l], self.cladeFreqWithAncestor[:tEnd, self.ancestorIndices[i]], times=self.times[:tEnd]))
             numExistingClades += period.numClades
 
         self.cladeMuts = [[] for _ in range(self.numClades)]
@@ -1760,6 +1926,9 @@ class CladeReconstruction:
             fitnessByEstCovAndProcessedTraj = self.computeFitness(self.processedTraj, selectionByEstCov)
             res_est[window] = (estCov, selectionByEstCov, fitnessByEstCov, fitnessByEstCovAndProcessedTraj)
             # print('window=', window, selectionByEstCov[0])
+        if defaultWindow not in res_est.keys():
+            defaultWindow = np.max(list(res_est.keys()))
+        # print(f'default window = {defaultWindow}')
 
         intVar = computeIntegratedVariance(self.traj, self.times)
         selection_SL = self.inferSelection(intVar, mu=self.mu, regularization=defaultReg)

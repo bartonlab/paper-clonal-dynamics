@@ -23,10 +23,16 @@ class bcolors:
     UNDERLINE = '\033[4m'
 
 
-def printGroups(groups):
+def printGroups(groups, column='group'):
     table = [[len(group) for group in groups]]
-    headers = [f'{bcolors.BLACK}shared'] + [f'group {i+1}' for i in range(len(groups) - 1)]
-    print(tabulate(table, headers, tablefmt='plain'))
+    headers = [f'{bcolors.BLACK}shared'] + [f'{column} {i+1}' for i in range(len(groups) - 1)]
+    print(tabulate(table, headers, tablefmt='plain', numalign="right"))
+
+
+def printNumSignificantMutsInGroups(groupSizes, column='numSignificantMutsInGroup'):
+    table = [groupSizes]
+    headers = [f'{column} {i+1}' for i in range(len(groupSizes))]
+    print(tabulate(table, headers, tablefmt='plain', numalign="right"))
 
 
 def printPeriods(periods):

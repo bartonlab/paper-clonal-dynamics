@@ -28,26 +28,48 @@ import pandas as pd
 
 from scipy import stats
 
-sys.path.append('../paper-clade-reconstruction/src')
+# sys.path.append('../paper-clade-reconstruction/src')
 import MPL as MPL
 import analyze_and_plot as AP
 import reconstruct_clades as RC
+import data_parser as DP
+import simulation_helper as SH
 import lolipop_helper
 
-LOLIPOP_INPUT_DIR = './data/lolipop/input'
-LOLIPOP_OUTPUT_DIR = './data/lolipop/output'
-LOLIPOP_PARSED_OUTPUT_DIR = './data/lolipop/parsed_output'
 
-PALTE_DIR = './data/PALTEanalysis'
+DATA_DIR = './data'
+FIG_DIR = './figures'
+LOCAL_JOBS_DIR = './data/local_jobs'
+JOB_DIR = './jobs'
+
+# relative directories looking from shell scripts in JOB_DIR
+DATA_DIR_REL = '../data'
+SRC_DIR_REL = f'../src'
+
+# Trajectories
+PALTE_DIR = 'PALTEanalysis'
 TRAJ_FILENAME = 'Table_S3.csv'
 PALTE_TRAJ_FILE = f'{PALTE_DIR}/{TRAJ_FILENAME}'
 
-FITNESS_FILE = '../PALTEanalysis/Table_S1.xlsx'
+# Fitness
+FITNESS_FILE = 'PALTEanalysis/Table_S1.xlsx'
 SHEETNAMES = ['selection rates 0-24 hr', 'selection rates 24-48 hr',  'selection rates 0-48 hr']
 CONDITIONS = ['Plank', 'biof - bead', 'biof - plank portion']
 SELECTED_SHEET = 'selection rates 0-24 hr'
 SELECTED_CONDITIONS = ['biof - bead', 'biof - plank portion']
 
+# Lolipop
+LOLIPOP_INPUT_DIR = f'{DATA_DIR}/lolipop/input'
+LOLIPOP_OUTPUT_DIR = f'{DATA_DIR}/lolipop/output'
+LOLIPOP_PARSED_OUTPUT_DIR = f'{DATA_DIR}/lolipop/parsed_output'
+
+# Evoracle
+EVORACLE_PALTE_PARSED_OUTPUT_DIR = f'{DATA_DIR}/evoracle/PALTE_parsed_output'
+EVORACLE_PALTE_DIR = f'{DATA_DIR}/evoracle/PALTE'
+EVORACLE_PALTE_DIR_REL = f'{DATA_DIR_REL}/evoracle/PALTE'
+EVORACLE_PALTE_PARSED_OUTPUT_DIR_REL = f'{DATA_DIR_REL}/evoracle/PALTE_parsed_output'
+
+# Constants
 POPULATIONS = ['B1', 'B2', 'B3', 'P1', 'P2', 'P3']
 MEASURED_POPULATIONS = ['WT'] + POPULATIONS
 METHODS = ['recovered', 'Lolipop', 'est_cov', 'SL']
@@ -55,8 +77,17 @@ TIMES = np.array([0, 17, 25, 44, 66, 75, 90]) * 600 // 90
 MU = 1e-6
 REG = 4  # Adjustable through set_reg(reg)
 
-df_traj = pd.read_csv(PALTE_TRAJ_FILE)
-df_fitness = pd.read_excel(FITNESS_FILE, engine='openpyxl', sheet_name=SHEETNAMES)
+try:
+    df_traj
+    df_fitness
+except:
+    df_traj, df_fitness = None, None
+
+def load_df(data_dir='./data'):
+    global df_traj, df_fitness
+    df_traj = pd.read_csv(f'{data_dir}/{PALTE_TRAJ_FILE}')
+    df_fitness = pd.read_excel(f'{data_dir}/{FITNESS_FILE}', engine='openpyxl', sheet_name=SHEETNAMES)
+
 
 ############################################
 #
@@ -116,15 +147,18 @@ def parse_traj(df):
     return traj, times
 
 
-def parse_interpolated_traj(pop, df=df_traj):
+def parse_interpolated_traj(pop, df):
     traj, times = parse_traj(df[df['Population'] == pop])
     return interpolate_traj(traj, times)
 
 
 def parse_trajectories():
+    global df_traj
+    if df_traj is None:
+        load_df()
     trajectories = {}
     for pop in POPULATIONS:
-        trajectories[pop] = parse_interpolated_traj(pop)
+        trajectories[pop] = parse_interpolated_traj(pop, df_traj)
     return trajectories
 
 
@@ -141,7 +175,7 @@ def get_reconstruction_from_traj(traj, times, mu=MU, defaultReg=REG, meanReadDep
     rec = RC.CladeReconstruction(traj, times=times, meanReadDepth=meanReadDepth, debug=debug, verbose=verbose, plot=plot, mu=mu, useEffectiveMu=False)
     rec.setParamsForClusterization(weightByBothVariance=False, weightBySmallerVariance=True)
     rec.clusterMutations()
-    rec.setParamsForReconstruction(thFixed=thFixed, thExtinct=0, numClades=None, percentMutsToIncludeInMajorClades=95, thLogProbPerTime=thLogProbPerTime, thFreqUnconnected=thFreqUnconnected)
+    rec.setParamsForReconstruction(thFixed=thFixed, thExtinct=0, numClades=None, thLogProbPerTime=thLogProbPerTime, thFreqUnconnected=thFreqUnconnected)
     rec.checkForSeparablePeriodAndReconstruct()
     rec.setParamsForEvaluation(defaultReg=defaultReg)
     evaluation, inference = rec.evaluate(evaluateReconstruction=evaluateReconstruction, evaluateInference=evaluateInference)
@@ -153,8 +187,12 @@ def parse_reconstructions(reg=REG):
     evaluations = {pop: None for pop in POPULATIONS}
     inferences = {pop: None for pop in POPULATIONS}
 
+    global df_traj
+    if df_traj is None:
+        load_df()
+
     for pop in POPULATIONS:
-        traj = parse_interpolated_traj(pop)
+        traj = parse_interpolated_traj(pop, df_traj)
         (reconstructions[pop], evaluations[pop],
          inferences[pop]) = get_reconstruction_from_traj(traj, TIMES, defaultReg=reg, mu=MU, evaluateReconstruction=True, evaluateInference=True)
 
@@ -267,6 +305,64 @@ def parse_fitness_by_pop_into_list(measured_fitness_by_pop, inferred_fitness_by_
         inferred_fitness_list.append(inferred_fitness)
 
     return measured_fitness, inferred_fitness_list
+
+
+############################################
+#
+# Evoracle
+#
+############################################
+
+
+def save_traj_for_evoracle(trajectories=None):
+    if trajectories is None:
+        trajectories = parse_trajectories()
+    for pop in POPULATIONS:
+        traj = trajectories[pop]
+        file = f'{EVORACLE_PALTE_DIR}/{pop}/PALTE_{pop}_obsreads.csv'
+        DP.save_traj_for_evoracle(traj, file, times=TIMES)
+
+
+def generate_evoracle_scripts(env='evoracle', save_geno_traj=True, partition='intel', overwrite=False):
+    
+    job_prefix = f'evoracle_PALTE'
+    jobnames = {pop: f'{job_prefix}_pop={pop}' for pop in POPULATIONS}
+
+    for pop in POPULATIONS:
+        command = ''
+        job_pars = {
+            '-o': f'{EVORACLE_PALTE_PARSED_OUTPUT_DIR_REL}/evoracle_parsed_output_PALTE_pop={pop}.npz',
+            '-i': f'PALTE_{pop}_obsreads.csv',
+            '-d': f'{EVORACLE_PALTE_DIR_REL}/{pop}',
+        }
+        if save_geno_traj:
+            job_pars['--save_geno_traj'] = ''
+        command += f'python {SRC_DIR_REL}/evoracle_batch_job_real_data.py '
+        command += ' '.join([k + ' ' + str(v) for k, v in job_pars.items()])
+        command += '\n'
+        SH.generate_shell_script(JOB_DIR, jobnames[pop], command, hours=12, env=env)
+
+    jobname = f'{job_prefix}_submission'
+    command = ''
+    for pop in POPULATIONS:
+        if overwrite or not test_single_evoracle(pop):
+            command += f'sbatch -p {partition} {jobnames[pop]}.sh\n'
+    SH.generate_shell_script(JOB_DIR, jobname, command, env=env)
+
+
+def test_single_evoracle(pop):
+    try:
+        res = load_evoracle(pop)
+        for key in list(res.keys()):
+            res[key]
+        return True
+    except:
+        return False
+
+
+def load_evoracle(pop, directory=EVORACLE_PALTE_PARSED_OUTPUT_DIR):
+    file = f'{directory}/evoracle_parsed_output_PALTE_pop={pop}.npz'
+    return np.load(file, allow_pickle=True)
 
 
 ############################################

@@ -27,25 +27,21 @@ import mplot as mp
 import seaborn as sns
 
 from scipy import stats
+from sklearn.linear_model import LinearRegression
 
-sys.path.append('../paper-clade-reconstruction/src')
-import MPL as MPL
-import analyze_and_plot as AP
-import reconstruct_clades as RC
-import infer_fitness as IF
-import print_info as PI
-import LTEE
-import LTEE_helper as LH
-import lolipop_helper
-import PALTEanalysis
-import tobramycin_analysis
+import estimate_covariance as EC
+
+# sys.path.append('../paper-clade-reconstruction/src')
 
 ############# PARAMETERS #############
 
 # GLOBAL VARIABLES
 
 # METHODS = ['SL', 'true_cov', 'recovered', 'est_cov', 'Lolipop']
-METHODS = ['true_cov', 'recovered', 'Lolipop', 'est_cov', 'SL']
+# METHODS = ['true_cov', 'recovered', 'Lolipop', 'Evoracle', 'haploSep', 'est_cov', 'SL']
+METHODS = ['true_cov', 'recovered', 'Lolipop', 'Evoracle', 'est_cov', 'SL']
+METHODS_COMPARE_RUN_TIME = ['recovered', 'Lolipop', 'Evoracle']
+MARKERS_METHODS_COMPARE_RUN_TIME = ['o', '^', 'v']
 
 # Standard color scheme
 
@@ -77,6 +73,8 @@ if USE_COLOR_PALETTE_FROM_MATPLOTLIB:
 elif USE_COLOR_PALETTE_FROM_SEABORN:
     ALLELE_COLORS = sns.husl_palette(20)
     CLADE_COLORS = [GREY_COLOR_RGB] + sns.husl_palette(10)
+    # METHODS_COLORS = sns.husl_palette(len(METHODS) + 1)
+    METHODS_COMPARE_RUN_TIME_COLORS = sns.husl_palette(len(METHODS_COMPARE_RUN_TIME) + 1)
     # SEABORN_COLORS = sns.husl_palette(30)
     # ALLELE_COLORS = SEABORN_COLORS[:20]
     # CLADE_COLORS = SEABORN_COLORS[20:]
@@ -91,6 +89,8 @@ LTEE_ANCESTOR_FIXED_COLOR = '#d62728'
 LTEE_ANCESTOR_POLYMORPHIC_COLOR = '#e377c2'
 LTEE_MAJOR_POLYMORPHIC_COLOR = '#2ca02c'
 
+LTEE_INFERRED_SHARED_COLOR = '#fdd017'
+
 LTEE_COLORS = {
     1: LTEE_EXTINCT_COLOR, # Extinct
     2: LTEE_ANCESTOR_FIXED_COLOR, # Ancestor fixed
@@ -104,9 +104,9 @@ LTEE_COLORS = {
 # Plot conventions
 
 def cm2inch(x): return float(x)/2.54
-SINGLE_COLUMN   = cm2inch(8.5)
+SINGLE_COLUMN = cm2inch(8.5)
 ONE_FIVE_COLUMN = cm2inch(11.4)
-DOUBLE_COLUMN   = cm2inch(17.4)
+DOUBLE_COLUMN = cm2inch(17.4)
 
 GOLDR        = (1.0 + np.sqrt(5)) / 2.0
 TICKLENGTH   = 3
@@ -130,12 +130,21 @@ SMALLSIZEDOT = 6.
 SIZEDOT      = 12
 SIZELINE     = 0.6
 
+# DEF_FIGPROPS = {
+#     'transparent' : True,
+#     'edgecolor'   : None,
+#     'dpi'         : 1000,
+#     # 'bbox_inches' : 'tight',
+#     'pad_inches'  : 0.05,
+# }
 DEF_FIGPROPS = {
     'transparent' : True,
     'edgecolor'   : None,
-    'dpi'         : 1000,
+    'dpi'         : 300, # 300,  # 1000  # Comment this out for generating vector figures
     # 'bbox_inches' : 'tight',
     'pad_inches'  : 0.05,
+    # 'backend'     : 'PDF',
+    # 'backend'     : 'PGF',
 }
 
 DEF_SUBLABELPROPS = {
@@ -193,6 +202,21 @@ DEF_TICKPROPS = {
     'labelsize' : SIZETICK,
     'bottom'    : True,
     'left'      : True,
+    'top'       : False,
+    'right'     : False,
+}
+
+DEF_TICKPROPS_NO_AXES = {
+    'length'    : 0,
+    'width'     : 0,
+    'pad'       : 0,
+    'axis'      : 'both',
+    'which'     : 'both',
+    'direction' : 'out',
+    'colors'    : BKCOLOR,
+    'labelsize' : SIZETICK,
+    'bottom'    : False,
+    'left'      : False,
     'top'       : False,
     'right'     : False,
 }
@@ -287,6 +311,16 @@ EXCHANGE_FIRST_TWO_CLADES_LTEE = {
     'm1': True, 'm2': True, 'm4': True, 'm5': True, 'm6': False, 'p1': False, 'p3': False, 'p5': True, 'p6': True,
 }
 
+import MPL as MPL
+import analyze_and_plot as AP
+import reconstruct_clades as RC
+import infer_fitness as IF
+import print_info as PI
+import LTEE
+import LTEE_helper as LH
+import lolipop_helper
+import PALTEanalysis
+import tobramycin_analysis
 
 ############# HELPER  FUNCTIONS #############
 
@@ -466,6 +500,7 @@ def plot_genotype_annotation(x, y, genotype, max_freq, allele_colors, min_max_fr
             dx *= 1.4
     for locus, allele in enumerate(genotype):
         color = allele_colors[locus]
+        locus += 1  # Convert to 1-based index for plotting
         if plot_dot_for_WT_locus:
             if allele > 0:
                 if x > x_0:
@@ -558,6 +593,848 @@ def get_annotation_positions(max_gen, max_freq, plotted_positions, plot_dot_for_
     return x, y
 
 
+def get_axes_for_method_overview(plot_single_column=False, plot_arrow=True, plot_arrow_from_traj_center=False):
+
+    if not plot_single_column:
+
+        ratio   = 0.5
+        w       = DOUBLE_COLUMN
+        h       = ratio * w
+        fig     = plt.figure(figsize=(w, h))
+
+        global_left = 0.08
+        global_right = 0.98
+        global_top = 0.95
+        global_bottom = 0.05
+
+        arrow_width = 0.07
+        full_period_ratio = 0.7
+        full_width = (global_right - global_left - 3 * arrow_width) / (2 + 2 * full_period_ratio)
+        period_width = full_period_ratio * full_width
+
+        step_1_width = full_width
+        arrow_12_width = arrow_width
+        step_2_width = period_width
+        arrow_23_width = arrow_width
+        step_3_width = period_width
+        arrow_34_width = arrow_width
+        step_4_width = full_width
+
+        traj_height = 0.2
+        divider_height = 0.07
+        heatmap_height = 0.12
+        heatmap_width = heatmap_height * ratio
+        step_1_divider_width = step_1_width - 2 * heatmap_width
+        step_2_divider_width = step_2_width - 2 * heatmap_width
+
+        step_1_left = global_left
+        step_1_right = global_left + step_1_width
+        step_1_height = traj_height + divider_height + heatmap_height
+        step_1_top = 0.5 + step_1_height / 2
+        step_1_bottom = 0.5 - step_1_height / 2
+        step_1_center = 0.5
+
+        step_2_left = step_1_right + arrow_12_width
+        step_2_right = step_2_left + step_2_width
+        step_2_upper_top = global_top
+        step_2_upper_bottom = global_top - traj_height - divider_height - heatmap_height
+        step_2_lower_top = global_bottom + traj_height + divider_height + heatmap_height
+        step_2_lower_bottom = global_bottom
+        step_2_upper_center = (step_2_upper_top + step_2_upper_bottom) / 2
+        step_2_lower_center = (step_2_lower_top + step_2_lower_bottom) / 2
+
+        step_3_left = step_2_right + arrow_23_width
+        step_3_right = step_3_left + step_3_width
+        step_3_upper_top = step_2_upper_center + traj_height / 2
+        step_3_lower_top = step_2_lower_center + traj_height / 2
+        step_3_upper_bottom = step_2_upper_center - traj_height / 2
+        step_3_lower_bottom = step_2_lower_center - traj_height / 2
+        step_3_upper_center = (step_3_upper_top + step_3_upper_bottom) / 2
+        step_3_lower_center = (step_3_lower_top + step_3_lower_bottom) / 2
+
+        step_4_left = step_3_right + arrow_34_width
+        step_4_right = step_4_left + step_4_width
+        step_4_top = step_1_center + traj_height / 2
+        step_4_bottom = step_1_center - traj_height / 2
+        step_4_center = (step_4_top + step_4_bottom) / 2
+
+        step_1_traj_box = dict(left=step_1_left,
+                               right=step_1_right,
+                               bottom=step_1_top - traj_height,
+                               top=step_1_top)
+
+        step_1_D_box = dict(left=step_1_left,
+                            right=step_1_left + heatmap_width,
+                            bottom=step_1_bottom,
+                            top=step_1_bottom + heatmap_height)
+
+        step_1_segmentedD_box = dict(left=step_1_right - heatmap_width,
+                                     right=step_1_right,
+                                     bottom=step_1_bottom,
+                                     top=step_1_bottom + heatmap_height)
+
+        step_2_traj_upper_box = dict(left=step_2_left,
+                                     right=step_2_right,
+                                     bottom=step_2_upper_top - traj_height,
+                                     top=step_2_upper_top)
+
+        step_2_D_upper_box = dict(left=step_2_left,
+                                  right=step_2_left + heatmap_width,
+                                  bottom=step_2_upper_bottom,
+                                  top=step_2_upper_top - traj_height - divider_height)
+
+        step_2_segmentedD_upper_box = dict(left=step_2_right - heatmap_width,
+                                           right=step_2_right,
+                                           bottom=step_2_upper_bottom,
+                                           top=step_2_upper_top - traj_height - divider_height)
+
+        step_2_traj_lower_box = dict(left=step_2_left,
+                                     right=step_2_right,
+                                     bottom=step_2_lower_top - traj_height,
+                                     top=step_2_lower_top,)
+
+        step_2_D_lower_box = dict(left=step_2_left,
+                                  right=step_2_left + heatmap_width,
+                                  bottom=step_2_lower_bottom,
+                                  top=step_2_lower_top - traj_height - divider_height)
+
+        step_2_segmentedD_lower_box = dict(left=step_2_right - heatmap_width,
+                                           right=step_2_right,
+                                           bottom=step_2_lower_bottom,
+                                           top=step_2_lower_top - traj_height - divider_height)
+
+        step_3_traj_upper_box = dict(left=step_3_left,
+                                     right=step_3_right,
+                                     bottom=step_3_upper_bottom,
+                                     top=step_3_upper_top,)
+
+        step_3_traj_lower_box = dict(left=step_3_left,
+                                     right=step_3_right,
+                                     bottom=step_3_lower_bottom,
+                                     top=step_3_lower_top,)
+
+        step_4_traj_box = dict(left=step_4_left,
+                               right=step_4_right,
+                               bottom=step_4_bottom,
+                               top=step_4_top,)
+
+        traj_boxes = [step_1_traj_box, step_2_traj_upper_box, step_2_traj_lower_box, step_3_traj_upper_box, step_3_traj_lower_box, step_4_traj_box]
+        D_boxes = [step_1_D_box, step_2_D_upper_box, step_2_D_lower_box]
+        segmentedD_boxes = [step_1_segmentedD_box, step_2_segmentedD_upper_box, step_2_segmentedD_lower_box]
+
+        # boxes = traj_boxes + D_boxes + segmentedD_boxes
+        traj_gridspecs = [gridspec.GridSpec(1, 1, **box) for box in traj_boxes]
+        D_gridspecs = [gridspec.GridSpec(1, 1, **box) for box in D_boxes]
+        segmentedD_gridspecs = [gridspec.GridSpec(1, 1, **box) for box in segmentedD_boxes]
+
+        traj_axes = [plt.subplot(gs[0, 0]) for gs in traj_gridspecs]
+        D_axes = [plt.subplot(gs[0, 0]) for gs in D_gridspecs]
+        segmentedD_axes = [plt.subplot(gs[0, 0]) for gs in segmentedD_gridspecs]
+
+    if plot_arrow:
+        def_arrowprops = {
+            'arrowstyle': '<-',
+            'color': '0.5',
+            'shrinkA': 2, 
+            'shrinkB': 2,
+            'patchA': None, 
+            'patchB': None,
+        }
+        annotprops = {
+            'xy': None,
+            'xytext': None,
+            'xycoords': 'axes fraction',
+            'textcoords': 'axes fraction',
+        }
+
+        ax = traj_axes[0]
+        if plot_arrow_from_traj_center:
+            connectionstyle = 'bar,angle=90,fraction=0.29'
+            annotprops['xy'] = 1, 0.5
+            annotprops['xytext'] = (arrow_12_width + step_1_width) / step_1_width, 0.5 + (step_2_upper_top - step_1_top) / traj_height
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            annotprops['xytext'] = (arrow_12_width + step_1_width) / step_1_width, (step_2_lower_top - traj_height / 2 - (step_1_top - traj_height)) / traj_height
+            connectionstyle = 'bar,angle=90,fraction=-0.29'
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+        else:
+            connectionstyle = 'bar,angle=90,fraction=0.29'
+            annotprops['xy'] = 1, (step_1_center - (step_1_top - traj_height)) / traj_height
+            annotprops['xytext'] = (arrow_12_width + step_1_width) / step_1_width, (step_2_upper_center - (step_1_top - traj_height)) / traj_height
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            annotprops['xytext'] = (arrow_12_width + step_1_width) / step_1_width, (step_2_lower_center - (step_1_top - traj_height)) / traj_height
+            connectionstyle = 'bar,angle=90,fraction=-0.29'
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+        ax = traj_axes[1]
+        annotprops['xy'] = 1, (step_2_upper_center - (step_2_upper_top - traj_height)) / traj_height
+        annotprops['xytext'] = (arrow_23_width + step_2_width) / step_2_width, (step_2_upper_center - (step_2_upper_top - traj_height)) / traj_height
+        connectionstyle = 'bar,angle=90,fraction=-0.29'
+        arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+        ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+
+        ax = traj_axes[2]
+        # annotprops['xy'] = 1, (step_2_upper_center - (step_2_upper_top - traj_height)) / traj_height
+        # annotprops['xytext'] = (arrow_23_width + step_2_width) / step_2_width, (step_2_upper_center - (step_2_upper_top - traj_height)) / traj_height
+        connectionstyle = 'bar,angle=90,fraction=-0.29'
+        arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+        ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+        ax = traj_axes[3]
+        annotprops['xy'] = 1, 0.5
+        annotprops['xytext'] = (arrow_34_width + step_3_width) / step_3_width, (step_4_center - step_3_upper_bottom) / traj_height
+        connectionstyle = 'bar,angle=90,fraction=-0.29'
+        arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+        ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+        ax = traj_axes[4]
+        annotprops['xy'] = 1, 0.5
+        annotprops['xytext'] = (arrow_34_width + step_3_width) / step_3_width, (step_4_center - step_3_lower_bottom) / traj_height
+        connectionstyle = 'bar,angle=90,fraction=0.29'
+        arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+        ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+
+
+    return fig, traj_axes, D_axes, segmentedD_axes
+
+
+def get_axes_for_method_overview_2(plot_single_column=False, plot_arrow=True, reconstruction=None):
+
+    if plot_single_column and reconstruction is not None:
+        ratio   = 1.6
+        w       = SINGLE_COLUMN
+        h       = ratio * w
+        fig     = plt.figure(figsize=(w, h))
+
+        global_left = 0.04
+        global_right = 0.97
+        global_top = 0.98
+        global_bottom = 0.04
+
+        arrow_height = 0.06
+        short_arrow_height = arrow_height * 0.75
+        traj_height = 0.12
+        traj_width = 0.7
+        heatmap_height = 0.1
+
+        # Normalize
+        total = 2 * arrow_height + 3 * short_arrow_height + 4 * traj_height + 2 * heatmap_height
+        arrow_height /= total / (global_top - global_bottom)
+        short_arrow_height /= total / (global_top - global_bottom)
+        traj_height /= total / (global_top - global_bottom)
+        heatmap_height /= total / (global_top - global_bottom)
+
+        heatmap_width = heatmap_height * ratio
+        pb_1 = reconstruction.periodBoundaries[0]
+        pb_2 = reconstruction.periodBoundaries[1]
+        pl_1 = pb_1[1] - pb_1[0]
+        pl_2 = pb_2[1] - pb_2[0]
+        period_1_width = pl_1 / (pl_1 + pl_2) * traj_width
+        period_2_width = pl_2 / (pl_1 + pl_2) * traj_width
+
+        step_1_height = traj_height + short_arrow_height + heatmap_height
+        arrow_12_height = arrow_height
+        step_2_height = traj_height + short_arrow_height + heatmap_height
+        arrow_23_height = short_arrow_height
+        step_3_height = traj_height
+        arrow_34_height = arrow_height
+        step_4_height = traj_height
+
+        step_1_center = (global_left + global_right) / 2
+        step_1_left = step_1_center - traj_width / 2
+        step_1_right = step_1_center + traj_width / 2
+        step_1_width = step_1_right - step_1_left
+        step_1_traj_top = global_top
+        step_1_traj_bottom = step_1_traj_top - traj_height
+        step_1_heatmap_top = step_1_traj_bottom - short_arrow_height
+        step_1_heatmap_bottom = step_1_heatmap_top - heatmap_height
+        step_1_heatmap_left = step_1_center - heatmap_width / 2
+        step_1_heatmap_right = step_1_center + heatmap_width / 2
+        step_1_top = step_1_traj_top
+        step_1_bottom = step_1_heatmap_bottom
+
+        step_2_traj_top = step_1_bottom - arrow_12_height
+        step_2_traj_bottom = step_2_traj_top - traj_height
+        step_2_heatmap_top = step_2_traj_bottom - short_arrow_height
+        step_2_heatmap_bottom = step_2_heatmap_top - heatmap_height
+        step_2_period_1_left = global_left
+        step_2_period_1_right = step_2_period_1_left + period_1_width
+        step_2_period_2_right = global_right
+        step_2_period_2_left = step_2_period_2_right - period_2_width
+        step_2_period_1_center = (step_2_period_1_left + step_2_period_1_right) / 2
+        step_2_period_2_center = (step_2_period_2_left + step_2_period_2_right) / 2
+        step_2_period_1_heatmap_left = step_2_period_1_center - heatmap_width / 2
+        step_2_period_1_heatmap_right = step_2_period_1_center + heatmap_width / 2
+        step_2_period_2_heatmap_right = step_2_period_2_center + heatmap_width / 2
+        step_2_period_2_heatmap_left = step_2_period_2_center - heatmap_width / 2
+        step_2_top = step_2_traj_top
+        step_2_bottom = step_2_heatmap_bottom
+        step_2_left = step_2_period_1_left
+        step_2_right = step_2_period_2_right
+
+        step_3_top = step_2_bottom - arrow_23_height
+        step_3_bottom = step_3_top - step_3_height
+        step_3_period_1_left = step_2_period_1_left
+        step_3_period_1_right = step_2_period_1_right
+        step_3_period_2_right = step_2_period_2_right
+        step_3_period_2_left = step_2_period_2_left
+        step_3_period_1_center = (step_3_period_1_left + step_3_period_1_right) / 2
+        step_3_period_2_center = (step_3_period_2_left + step_3_period_2_right) / 2
+
+        step_4_top = step_3_bottom - arrow_34_height
+        step_4_bottom = step_4_top - step_4_height
+        step_4_center = step_1_center
+        step_4_left = step_4_center - traj_width / 2
+        step_4_right = step_4_center + traj_width / 2
+
+        step_1_traj_box = dict(left=step_1_left,
+                               right=step_1_right,
+                               bottom=step_1_traj_bottom,
+                               top=step_1_traj_top)
+
+        step_1_segmentedD_box = dict(left=step_1_heatmap_left,
+                                     right=step_1_heatmap_right,
+                                     bottom=step_1_heatmap_bottom,
+                                     top=step_1_heatmap_top)
+
+        step_2_period_1_traj_box = dict(left=step_2_period_1_left,
+                                     right=step_2_period_1_right,
+                                     bottom=step_2_traj_bottom,
+                                     top=step_2_traj_top)
+
+        step_2_period_1_segmentedD_box = dict(left=step_2_period_1_heatmap_left,
+                                           right=step_2_period_1_heatmap_right,
+                                           bottom=step_2_heatmap_bottom,
+                                           top=step_2_heatmap_top)
+
+        step_2_period_2_traj_box = dict(left=step_2_period_2_left,
+                                     right=step_2_period_2_right,
+                                     bottom=step_2_traj_bottom,
+                                     top=step_2_traj_top)
+
+        step_2_period_2_segmentedD_box = dict(left=step_2_period_2_heatmap_left,
+                                           right=step_2_period_2_heatmap_right,
+                                           bottom=step_2_heatmap_bottom,
+                                           top=step_2_heatmap_top)
+
+        step_3_period_1_traj_box = dict(left=step_3_period_1_left,
+                                     right=step_3_period_1_right,
+                                     bottom=step_3_bottom,
+                                     top=step_3_top,)
+
+        step_3_period_2_traj_box = dict(left=step_3_period_2_left,
+                                     right=step_3_period_2_right,
+                                     bottom=step_3_bottom,
+                                     top=step_3_top,)
+
+        step_4_traj_box = dict(left=step_4_left,
+                               right=step_4_right,
+                               bottom=step_4_bottom,
+                               top=step_4_top,)
+
+        traj_boxes = [step_1_traj_box, step_2_period_1_traj_box, step_2_period_2_traj_box, step_3_period_1_traj_box, step_3_period_2_traj_box, step_4_traj_box]
+        segmentedD_boxes = [step_1_segmentedD_box, step_2_period_1_segmentedD_box, step_2_period_2_segmentedD_box]
+
+        # boxes = traj_boxes + D_boxes + segmentedD_boxes
+        traj_gridspecs = [gridspec.GridSpec(1, 1, **box) for box in traj_boxes]
+        segmentedD_gridspecs = [gridspec.GridSpec(1, 1, **box) for box in segmentedD_boxes]
+
+        traj_axes = [plt.subplot(gs[0, 0]) for gs in traj_gridspecs]
+        D_axes = None
+        segmentedD_axes = [plt.subplot(gs[0, 0]) for gs in segmentedD_gridspecs]
+
+        if plot_arrow:
+            y_offset = 0
+            def_arrowprops = {
+                'arrowstyle': '<-',
+                'color': '0.5',
+                'shrinkA': 2, 
+                'shrinkB': 2,
+                'patchA': None, 
+                'patchB': None,
+            }
+            annotprops = {
+                'xy': None,
+                'xytext': None,
+                'xycoords': 'axes fraction',
+                'textcoords': 'axes fraction',
+            }
+
+            traj_ax_ratio = ratio * traj_height / traj_width
+            # print('traj_ax_ratio = ', traj_ax_ratio)
+            ax = traj_axes[0]
+            connectionstyle = 'arc3,rad=0'
+            annotprops['xy'] = 0.5, 0
+            annotprops['xytext'] = 0.5, (-short_arrow_height) / traj_height + y_offset
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            annotprops['xy'] = 0.5, (-short_arrow_height - heatmap_height) / traj_height
+            annotprops['xytext'] = (step_2_period_1_center - step_1_left) / step_1_width, (-short_arrow_height - heatmap_height - arrow_12_height) / traj_height
+            # fraction = 0.5 * (annotprops['xytext'][1] - annotprops['xy'][1])
+            # fraction = get_fraction_to_connect_at_mid(annotprops['xy'], annotprops['xytext'], 0, ax_ratio=traj_ax_ratio)
+            fraction = -0.25
+            connectionstyle = f"bar,angle=0,fraction={fraction}"
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            annotprops['xytext'] = (step_2_period_2_center - step_1_left) / step_1_width, (-short_arrow_height - heatmap_height - arrow_12_height) / traj_height
+            fraction = -0.13
+            connectionstyle = f'bar,angle=180,fraction={fraction}'
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            connectionstyle = 'arc3,rad=0'
+            ax = traj_axes[1]
+            annotprops['xy'] = 0.5, 0
+            annotprops['xytext'] = 0.5, (-short_arrow_height) / traj_height + y_offset
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            annotprops['xy'] = 0.5, (-short_arrow_height - heatmap_height) / traj_height
+            annotprops['xytext'] = 0.5, (-short_arrow_height - heatmap_height - arrow_23_height) / traj_height
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            ax = traj_axes[2]
+            annotprops['xy'] = 0.5, 0
+            annotprops['xytext'] = 0.5, (-short_arrow_height) / traj_height + y_offset
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            annotprops['xy'] = 0.5, (-short_arrow_height - heatmap_height) / traj_height
+            annotprops['xytext'] = 0.5, (-short_arrow_height - heatmap_height - arrow_23_height) / traj_height
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            ax = traj_axes[3]
+            annotprops['xy'] = 0.5, 0
+            annotprops['xytext'] = (step_4_center - step_3_period_1_left) / period_1_width, (-arrow_34_height) / traj_height
+            fraction = -0.25
+            connectionstyle = f'bar,angle=180,fraction={fraction}'
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            ax = traj_axes[4]
+            annotprops['xy'] = 0.5, 0
+            annotprops['xytext'] = (step_4_center - step_3_period_2_left) / period_2_width, (-arrow_34_height) / traj_height
+            fraction = -0.13
+            connectionstyle = f'bar,angle=0,fraction={fraction}'
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+    else:
+        ratio   = 0.3
+        w       = DOUBLE_COLUMN
+        h       = ratio * w
+        fig     = plt.figure(figsize=(w, h))
+
+        global_left = 0.06
+        global_right = 0.99
+        global_top = 0.95
+        global_bottom = 0.08
+
+        arrow_width = 0.07
+        short_arrow_width = arrow_width * 0.75
+        full_period_ratio = 0.7
+        traj_height = 0.25
+        divider_height = 0.07
+        heatmap_height = 0.2
+        heatmap_width = heatmap_height * ratio
+        full_width = (global_right - global_left - 2 * arrow_width - 2 * short_arrow_width - heatmap_width) / (2 + 2 * full_period_ratio)
+        period_width = full_period_ratio * full_width
+
+        step_1_width = full_width
+        arrow_12_width = arrow_width
+        step_2_width = period_width
+        arrow_23_width = 2 * short_arrow_width + heatmap_width
+        step_3_width = period_width
+        arrow_34_width = arrow_width
+        step_4_width = full_width
+
+        step_1_left = global_left
+        step_1_right = global_left + step_1_width
+        step_1_top = global_top
+        step_1_bottom = global_bottom
+        step_1_height = step_1_top - step_1_bottom
+        step_1_center = (step_1_top + step_1_bottom) / 2
+        step_1_lower_center = (step_1_bottom + step_1_bottom + traj_height) / 2
+
+        step_2_left = step_1_right + arrow_12_width
+        step_2_right = step_2_left + step_2_width
+        step_2_upper_top = global_top
+        step_2_upper_bottom = global_top - traj_height
+        step_2_lower_top = global_bottom + traj_height
+        step_2_lower_bottom = global_bottom
+        step_2_upper_center = (step_2_upper_top + step_2_upper_bottom) / 2
+        step_2_lower_center = (step_2_lower_top + step_2_lower_bottom) / 2
+
+        step_3_left = step_2_right + arrow_23_width
+        step_3_right = step_3_left + step_3_width
+        step_3_upper_top = step_2_upper_center + traj_height / 2
+        step_3_lower_top = step_2_lower_center + traj_height / 2
+        step_3_upper_bottom = step_2_upper_center - traj_height / 2
+        step_3_lower_bottom = step_2_lower_center - traj_height / 2
+        step_3_upper_center = (step_3_upper_top + step_3_upper_bottom) / 2
+        step_3_lower_center = (step_3_lower_top + step_3_lower_bottom) / 2
+
+        step_4_left = step_3_right + arrow_34_width
+        step_4_right = step_4_left + step_4_width
+        step_4_top = step_1_center + traj_height / 2
+        step_4_bottom = step_1_center - traj_height / 2
+        step_4_center = (step_4_top + step_4_bottom) / 2
+
+        step_1_traj_box_1 = dict(left=step_1_left,
+                                 right=step_1_right,
+                                 bottom=step_1_top - traj_height,
+                                 top=step_1_top)
+
+        step_1_traj_box_2 = dict(left=step_1_left,
+                                 right=step_1_right,
+                                 bottom=step_1_bottom,
+                                 top=step_1_bottom + traj_height)
+
+        step_1_segmentedD_box = dict(left=(step_1_left + step_1_right - heatmap_width) / 2,
+                                     right=(step_1_left + step_1_right + heatmap_width) / 2,
+                                     bottom=step_1_center - heatmap_height / 2,
+                                     top=step_1_center + heatmap_height / 2)
+
+        step_2_traj_upper_box = dict(left=step_2_left,
+                                     right=step_2_right,
+                                     bottom=step_2_upper_top - traj_height,
+                                     top=step_2_upper_top)
+
+        step_2_segmentedD_upper_box = dict(left=step_2_right + short_arrow_width,
+                                           right=step_2_right + short_arrow_width + heatmap_width,
+                                           bottom=step_2_upper_center - heatmap_height / 2,
+                                           top=step_2_upper_center + heatmap_height / 2)
+
+        step_2_traj_lower_box = dict(left=step_2_left,
+                                     right=step_2_right,
+                                     bottom=step_2_lower_top - traj_height,
+                                     top=step_2_lower_top,)
+
+        step_2_segmentedD_lower_box = dict(left=step_2_right + short_arrow_width,
+                                           right=step_2_right + short_arrow_width + heatmap_width,
+                                           bottom=step_2_lower_center - heatmap_height / 2,
+                                           top=step_2_lower_center + heatmap_height / 2)
+
+        step_3_traj_upper_box = dict(left=step_3_left,
+                                     right=step_3_right,
+                                     bottom=step_3_upper_bottom,
+                                     top=step_3_upper_top,)
+
+        step_3_traj_lower_box = dict(left=step_3_left,
+                                     right=step_3_right,
+                                     bottom=step_3_lower_bottom,
+                                     top=step_3_lower_top,)
+
+        step_4_traj_box = dict(left=step_4_left,
+                               right=step_4_right,
+                               bottom=step_4_bottom,
+                               top=step_4_top,)
+
+        traj_boxes = [step_1_traj_box_1, step_2_traj_upper_box, step_2_traj_lower_box, step_3_traj_upper_box, step_3_traj_lower_box, step_4_traj_box, step_1_traj_box_2]
+        # D_boxes = [step_1_D_box, step_2_D_upper_box, step_2_D_lower_box]
+        segmentedD_boxes = [step_1_segmentedD_box, step_2_segmentedD_upper_box, step_2_segmentedD_lower_box]
+
+        # boxes = traj_boxes + D_boxes + segmentedD_boxes
+        traj_gridspecs = [gridspec.GridSpec(1, 1, **box) for box in traj_boxes]
+        # D_gridspecs = [gridspec.GridSpec(1, 1, **box) for box in D_boxes]
+        segmentedD_gridspecs = [gridspec.GridSpec(1, 1, **box) for box in segmentedD_boxes]
+
+        traj_axes = [plt.subplot(gs[0, 0]) for gs in traj_gridspecs]
+        # D_axes = [plt.subplot(gs[0, 0]) for gs in D_gridspecs]
+        D_axes = None
+        segmentedD_axes = [plt.subplot(gs[0, 0]) for gs in segmentedD_gridspecs]
+
+        if plot_arrow:
+            y_offset = 0
+            def_arrowprops = {
+                'arrowstyle': '<-',
+                'color': '0.5',
+                'shrinkA': 2, 
+                'shrinkB': 2,
+                'patchA': None, 
+                'patchB': None,
+            }
+            annotprops = {
+                'xy': None,
+                'xytext': None,
+                'xycoords': 'axes fraction',
+                'textcoords': 'axes fraction',
+            }
+
+            ax = traj_axes[0]
+            connectionstyle = 'bar,angle=0'
+            annotprops['xy'] = 0.5, 0
+            annotprops['xytext'] = 0.5, (step_1_center + heatmap_height / 2 - step_1_top + traj_height) / traj_height + y_offset
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            annotprops['xy'] = 0.5, (step_1_center - heatmap_height / 2 - step_1_top + traj_height) / traj_height + y_offset
+            annotprops['xytext'] = 0.5, (step_1_bottom + traj_height - step_1_top + traj_height) / traj_height + y_offset
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            connectionstyle = 'bar,angle=90,fraction=0.18'
+            annotprops['xy'] = 1, (step_1_lower_center - step_1_top + traj_height) / traj_height
+            annotprops['xytext'] = (arrow_12_width + step_1_width) / step_1_width, 0.5 + (step_2_upper_top - step_1_top) / traj_height
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            annotprops['xytext'] = (arrow_12_width + step_1_width) / step_1_width, (step_2_lower_top - traj_height / 2 - (step_1_top - traj_height)) / traj_height
+            connectionstyle = 'bar,angle=90,fraction=-0.4'
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            connectionstyle = 'arc3,rad=0'
+            ax = traj_axes[1]
+            annotprops['xy'] = 1, (step_2_upper_center - (step_2_upper_top - traj_height)) / traj_height
+            annotprops['xytext'] = (short_arrow_width + step_2_width) / step_2_width, (step_2_upper_center - (step_2_upper_top - traj_height)) / traj_height
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            annotprops['xy'] = (short_arrow_width + heatmap_width + step_2_width) / step_2_width, (step_2_upper_center - (step_2_upper_top - traj_height)) / traj_height
+            annotprops['xytext'] = (2 * short_arrow_width + heatmap_width + step_2_width) / step_2_width, (step_2_upper_center - (step_2_upper_top - traj_height)) / traj_height
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+
+            ax = traj_axes[2]
+            annotprops['xy'] = 1, (step_2_lower_center - (step_2_lower_top - traj_height)) / traj_height
+            annotprops['xytext'] = (short_arrow_width + step_2_width) / step_2_width, (step_2_lower_center - (step_2_lower_top - traj_height)) / traj_height
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            annotprops['xy'] = (short_arrow_width + heatmap_width + step_2_width) / step_2_width, (step_2_lower_center - (step_2_lower_top - traj_height)) / traj_height
+            annotprops['xytext'] = (2 * short_arrow_width + heatmap_width + step_2_width) / step_2_width, (step_2_lower_center - (step_2_lower_top - traj_height)) / traj_height
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            ax = traj_axes[3]
+            annotprops['xy'] = 1, 0.5
+            annotprops['xytext'] = (arrow_34_width + step_3_width) / step_3_width, (step_4_center - step_3_upper_bottom) / traj_height
+            connectionstyle = 'bar,angle=90,fraction=-0.29'
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+            ax = traj_axes[4]
+            annotprops['xy'] = 1, 0.5
+            annotprops['xytext'] = (arrow_34_width + step_3_width) / step_3_width, (step_4_center - step_3_lower_bottom) / traj_height
+            connectionstyle = 'bar,angle=90,fraction=0.29'
+            arrowprops = {**def_arrowprops, 'connectionstyle': connectionstyle}
+            ax.annotate('', **annotprops, arrowprops=arrowprops,)
+
+    return fig, traj_axes, D_axes, segmentedD_axes
+
+
+def get_distance(xy_1, xy_2, ax_ratio=1):
+    """Compute Euclidean distance between two coordinates. First convert x-coordinates to y-scale. The result is expressed in y-scale."""
+    dx = (xy_2[0] - xy_1[0]) * ax_ratio
+    dy = xy_2[1] - xy_1[1]
+    return math.sqrt(dx ** 2 + dy ** 2)
+
+
+def get_fraction_to_connect_at_mid(xy_1, xy_2, angle, ax_ratio=1):
+    x1, y1 = xy_1
+    x2, y2 = xy_2
+    dd = get_distance(xy_1, xy_2, ax_ratio=ax_ratio)
+    theta1 = math.atan2(y2 - y1, x2 - x1)
+    theta0 = np.deg2rad(angle)
+    dtheta = theta1 - theta0
+    dl = dd * math.sin(dtheta)
+    armB = - dl
+    f = 0.5 * (y1 - y2)
+    fraction = (f - max(armB, 0)) / dd
+    print('fraction * dd = ', fraction * dd)
+    return fraction
+
+
+def plot_figure_method_overview(reconstruction, plot_style=1, plot_single_column=False, plot_arrow=True, plot_arrow_from_traj_center=False, save_file=None):
+
+    if plot_style == 1:
+        fig, traj_axes, D_axes, segmentedD_axes = get_axes_for_method_overview(plot_single_column=plot_single_column, plot_arrow=plot_arrow, plot_arrow_from_traj_center=plot_arrow_from_traj_center)
+    elif plot_style == 2:
+        fig, traj_axes, D_axes, segmentedD_axes = get_axes_for_method_overview_2(plot_single_column=plot_single_column, plot_arrow=plot_arrow, reconstruction=reconstruction)
+
+    # Plain trajectories before inferring clonal structure
+    traj_ylabel = 'Frequency'
+    traj_list = [reconstruction.traj] + [period.traj for period in reconstruction.periods]
+    times_list = [reconstruction.times] + [period.times for period in reconstruction.periods]
+    for i, ax in enumerate(traj_axes[:3]):
+        plt.sca(ax)
+        traj, times = traj_list[i], times_list[i]
+        AP.plotTraj(traj, times=times, colors=['grey'] * len(traj[0]), alpha=0.6, linewidth=SIZELINE, fontsize=SIZELABEL, title='', plotFigure=False, plotShow=False)
+        xticks = [times[0], times[-1]]
+        if i == 0:
+            set_ticks_labels_axes(xlim=None, ylim=None, xticks=xticks, xticklabels=xticks, ylabel=traj_ylabel)
+        else:
+            set_ticks_labels_axes(xlim=None, ylim=None, xticks=xticks, xticklabels=xticks, ylabel=None, yticks=[], yticklabels=[])
+        # plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[0], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+
+    # Colored trajectories
+    period_list = reconstruction.periods
+    clade_index_offset = 0
+    ancestor_clade_index = -1
+    for i, ax in enumerate(traj_axes[3:5]):
+        plt.sca(ax)
+        period = period_list[i]
+        times = period.times
+        AP.plotCladeAndMutFreq_overview(period, clade_index_offset=clade_index_offset, ancestor_clade_index=ancestor_clade_index, fontsize=SIZELABEL, legendsize=SIZELEGEND, title='', plotFigure=False, plotShow=False)
+        ancestor_clade_index = clade_index_offset + np.argmax(period.cladeFreq[-1])
+        xticks = [times[0], times[-1]]
+        clade_index_offset += period.numClades
+        set_ticks_labels_axes(xlim=None, ylim=None, xticks=xticks, xticklabels=xticks, ylabel=None, yticks=[], yticklabels=[])
+
+    plt.sca(traj_axes[5])
+    times = reconstruction.times
+    xticks = [times[0], times[-1]]
+    AP.plotCladeAndMutFreq_overview(reconstruction, clade_index_offset=0, ancestor_clade_index=-1, fontsize=SIZELABEL, legendsize=SIZELEGEND, title='', plotFigure=False, plotShow=False)
+    set_ticks_labels_axes(xlim=None, ylim=None, xticks=xticks, xticklabels=xticks, ylabel=None, yticks=[], yticklabels=[])
+
+    # Indicate detection of fixation event here
+    if plot_style == 2 and not plot_single_column:
+        plt.sca(traj_axes[6])
+        traj, times = traj_list[0], times_list[0]
+        AP.plotTraj(traj, times=times, colors=['grey'] * len(traj[0]), alpha=0.6, linewidth=SIZELINE, fontsize=SIZELABEL, title='', plotFigure=False, plotShow=False)
+        xticks = [times[0], times[-1]]
+        set_ticks_labels_axes(xlim=None, ylim=None, xticks=xticks, xticklabels=xticks, ylabel=traj_ylabel)
+        t_fixed = reconstruction.periodBoundaries[0][1]
+        y_lower, y_upper = -0.2, 1.2
+        plt.plot((t_fixed, t_fixed), (y_lower, y_upper), linestyle='dashed', linewidth=SIZELINE * 1.5, color='red')
+        plt.text(t_fixed - 150, y_lower, 'Fixation', color='red', fontsize=SIZELABEL)
+
+    period_list = [reconstruction] + reconstruction.periods
+
+    if D_axes is not None:
+        vmin, vmax = None, None
+        for i, ax in enumerate(D_axes):
+            plt.sca(ax)
+            period = period_list[i]
+            AP.plotIntDxdx(period.intWeightedDxdx, plot_cbar=False, vmin=vmin, vmax=vmax, plot_xticks=False, plotFigure=False, plotShow=False)
+
+    vmin, vmax = None, None
+    for i, ax in enumerate(segmentedD_axes):
+        plt.sca(ax)
+        period = period_list[i]
+        AP.plotSegmentedIntDxdx(period, plot_cbar=False, vmin=vmin, vmax=vmax, plot_xticks=False, plot_yticks=False, plotFigure=False, plotShow=False)
+
+    plt.show()
+    if save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
+def save_subfigure_for_method_overview(reconstruction, clade_colors=None, save_file_prefix=None, postfix='.pdf', def_saveprops={}, linewidth=2*SIZELINE, cladeFreqLinestyle='solid', alleleFreqAlpha=0.6, ylim=(0.001, 0.999)):
+
+    # cladeFreqLinestyle=(0, (3, 3))
+
+    if clade_colors is None:
+        clade_colors = sns.husl_palette(reconstruction.numClades)
+
+    traj_width = 2
+    traj_height = traj_width * 0.35
+    heatmap_height = traj_height
+    period_traj_width = traj_width * 0.6
+
+    # Plain trajectories before inferring clonal structure
+    traj_list = [reconstruction.traj] + [period.traj for period in reconstruction.periods]
+    times_list = [reconstruction.times] + [period.times for period in reconstruction.periods]
+    for i, (traj, times) in enumerate(zip(traj_list, times_list)):
+        if i == 0:
+            figsize = (traj_width, traj_height)
+        else:
+            figsize = (period_traj_width, traj_height)
+        fig = AP.plotTraj(traj, times=times, ylim=ylim, colors=['grey'] * len(traj[0]), alpha=alleleFreqAlpha, linewidth=linewidth, fontsize=SIZELABEL, title='', plotFigure=True, figsize=figsize, returnFig=True, plotShow=False)
+        ax = plt.gca()
+        set_ticks_labels_axes(xlim=None, ylim=None, xticks=[], xticklabels=[], ylabel=None, yticks=[], yticklabels=[])
+        plt.subplots_adjust(0, 0, 1, 1)
+        plt.axis('off')
+        if save_file_prefix is not None:
+            fig.savefig(f'{save_file_prefix}-traj-{i}' + postfix, facecolor=fig.get_facecolor(), **DEF_FIGPROPS, **def_saveprops)
+
+    # Colored trajectories
+    clade_index_offset = 0
+    ancestor_clade_index = -1
+    for i, period in enumerate(reconstruction.periods):
+        fig = AP.plotCladeAndMutFreq_overview(period, colors=clade_colors, ylim=ylim, clade_index_offset=clade_index_offset, ancestor_clade_index=ancestor_clade_index, fontsize=SIZELABEL, cladeFreqLinestyle=cladeFreqLinestyle, alleleFreqAlpha=alleleFreqAlpha, linewidth=linewidth, plotLegend=False, legendsize=SIZELEGEND, title='', plotFigure=True, figsize=(period_traj_width, traj_height), returnFig=True, plotShow=False)
+        ax = plt.gca()
+        ancestor_clade_index = clade_index_offset + np.argmax(period.cladeFreq[-1])
+        clade_index_offset += period.numClades
+        set_ticks_labels_axes(xlim=None, ylim=None, xticks=[], xticklabels=[], ylabel=None, yticks=[], yticklabels=[])
+        plt.subplots_adjust(0, 0, 1, 1)
+        plt.axis('off')
+        if save_file_prefix is not None:
+            fig.savefig(f'{save_file_prefix}-traj-{i + len(traj_list)}' + postfix, facecolor=fig.get_facecolor(), **DEF_FIGPROPS, **def_saveprops)
+
+    fig = AP.plotCladeAndMutFreq_overview(reconstruction, colors=clade_colors, ylim=ylim, clade_index_offset=0, ancestor_clade_index=-1, fontsize=SIZELABEL, cladeFreqLinestyle=cladeFreqLinestyle, alleleFreqAlpha=alleleFreqAlpha, linewidth=linewidth, plotLegend=False, legendsize=SIZELEGEND, title='', plotFigure=True, figsize=(traj_width, traj_height), returnFig=True, plotShow=False)
+    ax = plt.gca()
+    set_ticks_labels_axes(xlim=None, ylim=None, xticks=[], xticklabels=[], ylabel=None, yticks=[], yticklabels=[])
+    plt.subplots_adjust(0, 0, 1, 1)
+    plt.axis('off')
+    if save_file_prefix is not None:
+        fig.savefig(f'{save_file_prefix}-traj-{len(reconstruction.periods) + len(traj_list)}' + postfix, facecolor=fig.get_facecolor(), **DEF_FIGPROPS, **def_saveprops)
+
+
+    # Legends
+    fig = plt.figure(figsize=(period_traj_width, traj_height))
+    lines = [matplotlib.lines.Line2D([0], [0], color=GREY_COLOR_HEX, linestyle=cladeFreqLinestyle, linewidth=linewidth), 
+             matplotlib.lines.Line2D([0], [0], color=GREY_COLOR_HEX, linewidth=linewidth, alpha=alleleFreqAlpha)]
+    ax = plt.gca()
+    ax.legend(lines, ['Clade frequency', 'Allele frequency'], fontsize=SIZELEGEND, frameon=False)
+    plt.subplots_adjust(0, 0, 1, 1)
+    plt.axis('off')
+    if save_file_prefix is not None:
+        fig.savefig(f'{save_file_prefix}-legend' + postfix, facecolor=fig.get_facecolor(), **DEF_FIGPROPS, **def_saveprops)
+
+    # Indicate detection of fixation event here
+    traj, times = traj_list[0], times_list[0]
+    fig = AP.plotTraj(traj, times=times, ylim=ylim, colors=[GREY_COLOR_HEX] * len(traj[0]), alpha=alleleFreqAlpha, linewidth=linewidth, fontsize=SIZELABEL, title='', plotFigure=True, figsize=(traj_width, traj_height), returnFig=True, plotShow=False)
+    ax = plt.gca()
+    set_ticks_labels_axes(xlim=None, ylim=None, xticks=[], xticklabels=[], ylabel=None)
+    plt.subplots_adjust(0, 0, 1, 1)
+    plt.axis('off')
+    t_fixed = reconstruction.periodBoundaries[0][1]
+    y_lower, y_upper = -0.2, 1.2
+    plt.plot((t_fixed, t_fixed), (y_lower, y_upper), linestyle=(0, (5, 1)), linewidth=linewidth * 1.5, color='#4472c4', alpha=1)
+    plt.text(t_fixed - 150, y_lower, 'Fixation', color='red', fontsize=SIZELABEL)
+    if save_file_prefix is not None:
+        fig.savefig(f'{save_file_prefix}-traj-fixation' + postfix, facecolor=fig.get_facecolor(), **DEF_FIGPROPS, **def_saveprops)
+
+
+    # Segmented int dxdx matrix
+    scale_list = [0.5, 0.5, 0.5]
+    for i, period in enumerate([reconstruction] + reconstruction.periods):
+        # scale = scale_list[i]
+        # segmentedIntDxdx, _ = period.segmentedIntDxdx
+        # segmentedIntDxdx = normalize_segmentedIntDxdx(segmentedIntDxdx)
+        # offDiagonalTerms = EC.get_off_diagonal_terms(segmentedIntDxdx)
+        vmin, vmax = None, None
+        fig = AP.plotSegmentedIntDxdx(period, normalize=True, segment_line_color='#7f7f7f', alpha=1, plot_cbar=False, vmin=vmin, vmax=vmax, plot_xticks=False, plot_yticks=False, plotFigure=True, figsize=(heatmap_height, heatmap_height), returnFig=True, plotShow=False)
+        ax = plt.gca()
+        plt.subplots_adjust(0, 0, 1, 1)
+        plt.axis('off')
+        if save_file_prefix is not None:
+            fig.savefig(f'{save_file_prefix}-segmenetdD-{i}' + postfix, facecolor=fig.get_facecolor(), **DEF_FIGPROPS, **def_saveprops)
+
+    plt.close('all')
+
+
+def get_genotype_info_from_simulation(simulation, reconstruction):
+
+    times = simulation['times']
+    T, L, N, genotypes, genotype_frequencies, pop = parse_info_from_simulation(simulation)
+    genotype_index_to_clade, clade_to_genotype_indices = map_genotype_index_to_clade(genotypes, reconstruction)
+    return genotypes, genotype_frequencies, genotype_index_to_clade, clade_to_genotype_indices
+
+
 def plot_figure_reconstruction_example(simulation, reconstruction, nRow=3, nCol=1, hspace=0.2, hspace_annotate_together=0.4, alpha=0.6, xlim=GENERATION_XLIM, ylim=FREQUENCY_YLIM, alpha_for_stackplot=0.8, ylim_for_stackplot=[-0.03, 1.02], use_color_palette_accordingly=True, genotype_color_indices_to_skip=None, plot_single_column=False, annotate_together=False, annotation_ys=None, annotate_genotype_sequence=True, annotation_line_size=SIZELINE * 1.2, annotation_line_offset=0.04, min_max_freq_to_annotate=0.3, plot_dot_for_WT_locus=True, add_background_behind_annotation=False, background_color='#f2f2f2', save_file=None):
 
     times = simulation['times']
@@ -578,16 +1455,18 @@ def plot_figure_reconstruction_example(simulation, reconstruction, nRow=3, nCol=
     gs_base = plt.GridSpec(3, 1, hspace=hspace_annotate_together if annotate_together else hspace)
     fig = plt.figure(figsize=(w, goldh))
     # fig, axes = plt.subplots(nRow, nCol, figsize=(w, goldh))
-    ylabel = 'Frequency'
+    # ylabels = ['Mutation\nfrequency', 'Haplotype\nproportion', 'Haplotype frequency and\ninferred clade frequency']
+    ylabels = ['Mutation\nfrequency', 'Haplotype\nproportion', 'Haplotype\nand clade\nfrequency']
+    # ylabel = 'Frequency'
     xlabel = 'Generation'
     size_annotation = SIZEANNOTATION_SINGLE if plot_single_column else SIZEANNOTATION
-    sublabel_x, sublabel_y = -0.115, 1.05
+    sublabel_x, sublabel_y = -0.186, 1.05
 
-    plt.sca(fig.add_subplot(gs_top[0,:]))
+    plt.sca(fig.add_subplot(gs_base[0,:]))
     traj = simulation['traj']
     ax = plt.gca()
     AP.plotTraj(traj, linewidth=SIZELINE, colors=allele_colors, alpha=alpha, plotFigure=False, plotShow=False, title=None)
-    set_ticks_labels_axes(xlim=xlim, ylim=ylim, xticks=[], xticklabels=[], ylabel=ylabel)
+    set_ticks_labels_axes(xlim=xlim, ylim=ylim, xticks=[], xticklabels=[], ylabel=ylabels[0])
     plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[0], transform=ax.transAxes, **DEF_SUBLABELPROPS)
 
     bottom_axes = [fig.add_subplot(gs_base[1, :]), fig.add_subplot(gs_base[2, :])]
@@ -597,7 +1476,7 @@ def plot_figure_reconstruction_example(simulation, reconstruction, nRow=3, nCol=
     ax = plt.gca()
     AP.plotTraj(genotype_frequencies.T, linewidth=SIZELINE, linestyle='dashed', alpha=alpha, colors=genotype_colors, plotFigure=False, plotShow=False, title=None)
     AP.plotTraj(reconstruction.cladeFreqWithAncestor, linewidth=SIZELINE * 2, alpha=alpha, colors=clade_colors, plotFigure=False, plotShow=False, title=None)
-    plt.plot([0, 0.0001], [-1, -1], linewidth=SIZELINE, linestyle='dashed', color=GREY_COLOR_RGB, alpha=alpha, label='Genotype')
+    plt.plot([0, 0.0001], [-1, -1], linewidth=SIZELINE, linestyle='dashed', color=GREY_COLOR_RGB, alpha=alpha, label='Haplotype')
     plt.plot([0, 0.0001], [-1, -1], linewidth=SIZELINE * 2, color=GREY_COLOR_RGB, alpha=alpha, label='Clade')
     if annotate_together:
         ax.legend(fontsize=SIZELEGEND * 0.7, loc='center left', bbox_to_anchor=(-0.01, 0.45), frameon=False)
@@ -641,7 +1520,7 @@ def plot_figure_reconstruction_example(simulation, reconstruction, nRow=3, nCol=
 
             plot_genotype_annotation(x, y, genotype, max_freq, allele_colors, min_max_freq_to_annotate=min_max_freq_to_annotate, fontsize=size_annotation, plot_dot_for_WT_locus=plot_dot_for_WT_locus, plot_single_column=plot_single_column, add_background_behind_annotation=add_background_behind_annotation, background_color=background_color)
 
-    set_ticks_labels_axes(xlim=xlim, xlabel=xlabel if annotate_together else None, ylim=ylim, xticks=[] if not annotate_together else None, xticklabels=[] if not annotate_together else None, ylabel=ylabel)
+    set_ticks_labels_axes(xlim=xlim, xlabel=xlabel if annotate_together else None, ylim=ylim, xticks=[] if not annotate_together else None, xticklabels=[] if not annotate_together else None, ylabel=ylabels[2 if annotate_together else 1])
 
     plt.sca(bottom_axes[0 if annotate_together else 1])
     ax = plt.gca()
@@ -679,10 +1558,10 @@ def plot_figure_reconstruction_example(simulation, reconstruction, nRow=3, nCol=
 
             plot_genotype_annotation(x, y, genotype, max_freq, allele_colors, min_max_freq_to_annotate=min_max_freq_to_annotate, fontsize=size_annotation, plot_dot_for_WT_locus=plot_dot_for_WT_locus, plot_single_column=plot_single_column, add_background_behind_annotation=add_background_behind_annotation, background_color=background_color)
 
-    set_ticks_labels_axes(xlim=xlim, ylim=ylim_for_stackplot, ylabel=ylabel, xlabel=xlabel if not annotate_together else None, xticks=[] if annotate_together else None, xticklabels=[] if annotate_together else None)
+    set_ticks_labels_axes(xlim=xlim, ylim=ylim_for_stackplot, ylabel=ylabels[1 if annotate_together else 2], xlabel=xlabel if not annotate_together else None, xticks=[] if annotate_together else None, xticklabels=[] if annotate_together else None)
 
     if plot_single_column:
-        plt.subplots_adjust(0.11, 0.13, 0.92, 0.95)
+        plt.subplots_adjust(0.17, 0.13, 0.92, 0.95)
     else:
         plt.subplots_adjust(0.055, 0.06, 0.93, 0.99)
     plt.show()
@@ -737,17 +1616,17 @@ def plot_figure_performance_example(simulation, reconstruction, evaluation, nRow
 
     inference = evaluation[1]
     selection_true = inference['true'][2]
-    seleciton_recovered = inference['recovered'][2]
+    selection_recovered = inference['recovered'][2]
     selection_trueCov = inference['true_cov'][2]
     selection_estCov = inference['est_cov'][2]
     selection_SL = inference['SL'][2]
-    selection_list = [selection_trueCov, seleciton_recovered, selection_SL]
+    selection_list = [selection_trueCov, selection_recovered, selection_SL]
     xlabel = 'True selections'
     if compare_with_SL:
-        ys_list = [selection_trueCov, seleciton_recovered, selection_SL]
+        ys_list = [selection_trueCov, selection_recovered, selection_SL]
         xs_list = [selection_true, selection_true, selection_true]
     else:
-        ys_list = [selection_trueCov, seleciton_recovered, seleciton_recovered]
+        ys_list = [selection_trueCov, selection_recovered, selection_recovered]
         xs_list = [selection_true, selection_true, selection_trueCov]
     selection_values = np.concatenate([selection_true] + selection_list)
     if ylim is None:
@@ -774,21 +1653,21 @@ def plot_figure_performance_example(simulation, reconstruction, evaluation, nRow
         ax = plt.gca()
         ylabel = 'Inferred selections'
         if plot_genotype_fitness:
-            fitness_recovered = RC.computeFitnessOfGenotypes(genotypes, seleciton_recovered)
+            fitness_recovered = RC.computeFitnessOfGenotypes(genotypes, selection_recovered)
             plot_comparison(fitness_true, fitness_recovered, xlabel, ylabel, label='Recovered' if plot_true_cov else None, alpha=alpha, ylim=ylim, yticks=yticks, xticks=yticks, plot_title=not plot_true_cov)
         else:
-            plot_comparison(selection_true, seleciton_recovered, xlabel, ylabel, label='Recovered' if plot_true_cov else None, alpha=alpha, ylim=ylim, yticks=yticks, xticks=yticks, plot_title=not plot_true_cov)
+            plot_comparison(selection_true, selection_recovered, xlabel, ylabel, label='Recovered' if plot_true_cov else None, alpha=alpha, ylim=ylim, yticks=yticks, xticks=yticks, plot_title=not plot_true_cov)
         if plot_true_cov:
             plt.scatter(selection_true, selection_trueCov, s=SIZEDOT, alpha=alpha, label='True_cov')
             plt.legend(fontsize=SIZELEGEND)
     elif compare_with_true:
-        ylabels = ['Selections inferred\nwith true covariance', 'Selections inferred with\nreconstructed covariance', 'Selections inferred when\nignoring linkage']
+        ylabels = ['Selections inferred\nwith true covariance', 'Selections inferred with\nreconstructed covariance', 'Selections inferred when\nignoring LD']
         for i, ys in enumerate(selection_list):
             ylabel = ylabels[i]
             plt.sca(axes[i, 1])
             plot_comparison(selection_true, ys, xlabel, ylabel, alpha=alpha, ylim=ylim, yticks=yticks, xticks=yticks if i == nRow - 1 else [])
     elif plot_genotype_fitness:
-        ylabels = ['Fitness inferred\nwith true covariance', 'Fitness inferred with\nreconstructed covariance', 'Fitness inferred when\nignoring linkage']
+        ylabels = ['Fitness inferred\nwith true covariance', 'Fitness inferred with\nreconstructed covariance', 'Fitness inferred when\nignoring LD']
         xlabel = 'True fitness'
         for i, (xs, ys) in enumerate(zip(xs_fitness_list, ys_fitness_list)):
             ylabel = ylabels[i]
@@ -820,6 +1699,95 @@ def plot_figure_performance_example(simulation, reconstruction, evaluation, nRow
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
 
 
+def plot_figure_performance_Evoracle_example(simulation, reconstruction, evaluation, results_evoracle, nRow=3, nCol=2, plot_genotype_fitness=True, threshold=0, ylim=(0.95, 1.25), yticks=(1.0, 1.1, 1.2), alpha=0.6, title_pad=4, save_file=None):
+
+    T, L, N, genotypes, genotype_frequencies, pop = parse_info_from_simulation(simulation)
+
+    w = SINGLE_COLUMN
+    goldh = w * 1 if nRow == 2 else w * 1.3
+    fig, axes = plt.subplots(nRow, nCol, figsize=(w, goldh))
+    sublabel_x, sublabel_y = -0.25, 1.08
+
+    if nRow == 2:
+        heatmaps = [axes[0, 0], axes[0, 1], axes[1, 0]]
+    else:
+        heatmaps = [axes[0, 0], axes[1, 0], axes[2, 0]]
+    cov_list = [reconstruction.intCov, results_evoracle['int_cov'], results_evoracle['int_cov'] - reconstruction.intCov]
+    # title_list = [r"True covariance, $C$", r"Recovered covariance, $\hat{C}$", "Error of recovered\ncovariance, $\hat{C}-C$"]
+    title_list = [r"True covariance, $C$", r"Covariance inferred by Evoracle, $\hat{C}$", "Error matrix, $\hat{C}-C$"]
+    vmin = min(np.min(cov_list[0]), np.min(cov_list[1]))
+    vmax = max(np.max(cov_list[0]), np.max(cov_list[1]))
+    cbar_ax = fig.add_axes(rect=[.106, .04, .34, .01])
+    cbar_ticks = np.arange(int(vmin/5)*5, int(vmax/5)*5, 50)
+    cbar_ticks -= cbar_ticks[np.argmin(np.abs(cbar_ticks))]
+    matrix_labels = np.arange(1, L+1, 2)
+    matrix_ticks = [l - 0.5 for l in matrix_labels]
+
+    for i, cov in enumerate(cov_list):
+        plt.sca(heatmaps[i])
+        at_left = (i % nCol == 0) if nRow == 2 else True
+        ax = plt.gca()
+        plot_cbar = (i == 2)
+        sns.heatmap(cov, center=0, vmin=vmin - 5, vmax=vmax + 5, cmap=CMAP, square=True, cbar=plot_cbar, cbar_ax=cbar_ax if plot_cbar else None, cbar_kws=dict(ticks=cbar_ticks, orientation="horizontal", shrink=1))
+        plt.title(title_list[i], fontsize=SIZELABEL, pad=title_pad)
+        ax.xaxis.set_label_position('top')
+        if at_left:
+            plt.yticks(ticks=matrix_ticks, labels=matrix_labels, fontsize=SIZELABEL)
+            plt.ylabel('Locus index', fontsize=SIZELABEL)
+        else:
+            plt.yticks(ticks=[], labels=[], fontsize=SIZELABEL)
+        plt.xticks(ticks=[], labels=[], fontsize=SIZELABEL)
+        if plot_cbar:
+            cbar_ax.tick_params(labelsize=SIZELABEL)
+        ax.tick_params(**DEF_TICKPROPS)
+        plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[i], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+
+    cbar_ax.tick_params(**DEF_TICKPROPS)
+
+    inference = evaluation[1]
+    selection_true = inference['true'][2]
+    selection_trueCov = inference['true_cov'][2]
+    selection_evoracle = results_evoracle['selection']
+    # selection_recovered = inference['recovered'][2]
+    # selection_estCov = inference['est_cov'][2]
+    selection_SL = inference['SL'][2]
+    selection_list = [selection_trueCov, selection_evoracle, selection_SL]
+
+    if plot_genotype_fitness:
+        T, L = simulation['traj'].shape
+        N = np.sum(simulation['nVec'][0])
+        genotypes, _, _ = AP.getDominantGenotypeTrajectories(simulation, threshold=threshold, T=T, totalPopulation=N)
+        fitness_true = RC.computeFitnessOfGenotypes(genotypes, selection_true)
+        xlabel, ylabel = 'True genotype fitness', 'Inferred genotype fitness'
+        fitness_list = [RC.computeFitnessOfGenotypes(genotypes, selection) for selection in selection_list]
+        fitness_trueCov, fitness_recovered, fitness_SL = tuple(fitness_list)
+        ys_fitness_list = fitness_list
+        xs_fitness_list = [fitness_true] * 3
+        fitness_values = np.concatenate([fitness_true] + fitness_list)
+        if ylim is None:
+            ylim = [np.min(fitness_values) - 0.01, np.max(fitness_values) + 0.01]
+
+    if plot_genotype_fitness:
+        ylabels = ['Fitness inferred\nwith true covariance', 'Fitness inferred with\ninferred covariance', 'Fitness inferred when\nignoring LD']
+        xlabel = 'True fitness'
+        for i, (xs, ys) in enumerate(zip(xs_fitness_list, ys_fitness_list)):
+            ylabel = ylabels[i]
+            plt.sca(axes[i, 1])
+            ax = plt.gca()
+            plot_comparison(xs, ys, xlabel if i == nRow - 1 else None, ylabel, alpha=alpha, ylim=ylim, yticks=yticks, xticks=yticks, xticklabels=yticks if i == nRow - 1 else [], plot_title=False)
+            plt.text(x=0.05, y=0.9, s="Spearman's " + r'$\rho$' + ' = %.2f' % stats.spearmanr(xs, ys)[0], transform=ax.transAxes, fontsize=SIZELABEL)
+            plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[3 + i], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+
+    ax.tick_params(**DEF_TICKPROPS)
+    plt.setp(ax.spines.values(), **DEF_AXPROPS)
+
+    plt.subplots_adjust(0.1, 0.07, 0.98, 0.96, hspace=0.2, wspace=0.5)
+    plt.show()
+
+    if save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
 def plot_comparison(xs, ys, xlabel, ylabel, label=None, annot_texts=None, alpha=0.6, ylim=None, xlim=None, yticks=None, xticks=None, xticklabels=None, plot_title=True, title_pad=4):
     plt.scatter(xs, ys, marker='o', edgecolors='none', s=SIZEDOT, alpha=alpha, label=label)
     if annot_texts is not None:
@@ -834,7 +1802,7 @@ def plot_comparison(xs, ys, xlabel, ylabel, label=None, annot_texts=None, alpha=
         plt.title("Spearman's " + r'$\rho$' + ' = %.2f' % stats.spearmanr(xs, ys)[0], fontsize=SIZELABEL, pad=title_pad)
 
 
-def plot_figure_performance_on_simulated_data_helper(ax, yspine_position=0.05, xspine_position=-0.1):
+def plot_figure_performance_on_simulated_data_helper(ax, yspine_position=0.05, xspine_position=-0.05):
 
     ax.tick_params(**DEF_TICKPROPS)
     plt.setp(ax.spines.values(), **DEF_AXPROPS)
@@ -844,7 +1812,7 @@ def plot_figure_performance_on_simulated_data_helper(ax, yspine_position=0.05, x
     ax.spines['bottom'].set_position(('axes', xspine_position))
 
 
-def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_selection, Spearmanr_selection, MAE_fitness=None, Spearmanr_fitness=None, two_columns=False, plot_legend=False, use_pearsonr=False, evaluate_fitness=False, annot=False, save_file=None):
+def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_selection, Spearmanr_selection, MAE_fitness=None, Spearmanr_fitness=None, method_list=METHODS, two_columns=False, plot_legend=False, use_pearsonr=False, evaluate_fitness=False, annot=False, save_file=None):
     """
     Comparisons versus existing methods of covariance recovery and selection inference.
     """
@@ -861,9 +1829,9 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
     fig     = plt.figure(figsize=(w, goldh))
 
     box_top   = 0.94
-    box_left  = 0.2
+    box_left  = 0.21
     box_right = 0.995 if two_columns else 0.94
-    wspace    = 0.6
+    wspace    = 0.5
 
     if MAE_fitness is not None and Spearmanr_fitness is not None:
         if two_columns:
@@ -899,9 +1867,9 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
         axes = [plt.subplot(gridspec[0, 0]) for gridspec in gridspecs]
 
     if MAE_fitness is not None and Spearmanr_fitness is not None:
-        ylim_list = [[0, 4.4], [0, 1.1], [0, 0.044], [0, 1.1], [0, 0.088], [0, 1.1]]
+        ylim_list = [[0, 4.1], [0, 1.1], [0, 0.041], [0, 1.1], [0, 0.082], [0, 1.1]]
         yticks_list = [[0, 2, 4], [0, 0.5, 1], [0, 0.02, 0.04], [0, 0.5, 1], [0, 0.04, 0.08], [0, 0.5, 1]]
-        yticklabels_list = [['0', '2', r'$\geq 4$'], ['0', '0.5', '1'], ['0', '0.02', '0.04'], ['0', '0.5', '1'], ['0', '0.04', '0.08'], ['0', '0.5', '1']]
+        yticklabels_list = [['0', '2', r'$\geq$' + '4'], ['0', '0.5', '1'], ['0', '0.02', r'$\geq$' + '0.04'], ['0', '0.5', '1'], ['0', '0.04', r'$\geq$' + '0.08'], ['0', '0.5', '1']]
         ceil_list = [4, None, 0.04, None, 0.08, None]
         floor_list = [None, None, None, None, None, None]
     else:
@@ -927,9 +1895,8 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
             else:
                 ylabel_list = ['MAE of recovered\ncovariances', LABEL_SPEARMANR_COVARIANCE_FOUR, 'MAE of inferred\nselection coefficients', LABEL_SPEARMANR_FOUR]
 
-    method_list = METHODS
     xs = np.arange(0, len(method_list))
-    xlim = [-0.75, 4.4] if two_columns else [-0.8, 4.4]
+    xlim = [-1, len(method_list) + 0.4] if two_columns else [-0.8, len(method_list) + 0.4]
     sublabel_x, sublabel_y = -0.6, 1.15
 
     ## set colors and methods list
@@ -940,14 +1907,16 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
     nc        = '#E8E8E8'
     hfc       = '#ffcd5e'
     nfc       = '#f0f0f0'
-    methods   = METHODS
+    methods   = method_list
     xticklabels = methods
     # xticklabels = ['0', '1', '2', '3', '4' ] if two_columns else METHODS
-    colorlist   = [   fc,    hc,    nc,      nc,      nc,         nc,      nc,    nc]
-    fclist      = [  ffc,   hfc,   nfc,     nfc,     nfc,        nfc,     nfc,   nfc]
-    eclist      = [BKCOLOR for k in range(len(methods))]
+    # colorlist   = [   fc,    hc,    nc,      nc,      nc,         nc,      nc,    nc]
+    # fclist      = [  ffc,   hfc,   nfc,     nfc,     nfc,        nfc,     nfc,   nfc]
+    colorlist = [fc, hc] + [nc] * (len(methods) - 2)
+    fclist = [ffc, hfc] + [nfc] * (len(methods) - 2)
+    eclist = [BKCOLOR] * len(methods)
 
-    hist_props = dict(lw=SIZELINE/2, width=0.5, align='center', orientation='vertical',
+    hist_props = dict(lw=SIZELINE/2, width=0.7, align='center', orientation='vertical',
                       edgecolor=[BKCOLOR for i in range(len(methods))])
 
     for row, metrics in enumerate(metrics_list):
@@ -956,36 +1925,41 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
         floor, ceil = floor_list[row], ceil_list[row]
 
         ys = [metrics[method] for method in method_list]
-        y_avgs = np.mean(ys, axis=1)
+        max_length = np.max([len(_) for _ in ys])
+        for ys_ in ys:
+            if len(ys_) < max_length:
+                ys_ += [np.mean(ys_)] * (max_length - len(ys_))
+        y_avgs = np.array([np.mean(_) for _ in ys])
         ax = axes[row]
 
+        na_fontsize = SIZELABEL
+        na_text_offset = -0.46
+
         if row == 1:
-            scatter_indices = np.array([_ for _ in range(len(ys)) if _ not in [0, 4]])  # Spearmanr of covariances does not apply to the SL/MPL method
-            # scatter_indices = np.arange(len(ys))
-            plt.sca(ax)
-            na_x, na_y = 3.6, 0.15
-            plt.plot([4, 4], [0, na_y - 0.05], linewidth=SIZELINE, color=BKCOLOR)
-            plt.text(na_x, na_y, 'NA', fontsize=SIZESUBLABEL)
+            scatter_indices = np.array([_ for _ in range(len(ys)) if method_list[_] not in ['true_cov', 'SL']])  # Spearmanr of covariances does not apply to the SL/MPL method
 
-            na_x, na_y = -0.4, 0.15
-            plt.plot([0, 0], [0, na_y - 0.05], linewidth=SIZELINE, color=BKCOLOR)
-            plt.text(na_x, na_y, 'NA', fontsize=SIZESUBLABEL)
+            na_xy_list = [(0, 0.15), (len(method_list) - 1, 0.15)]
+            plt.sca(ax)
+            for na_x, na_y in na_xy_list:
+                plt.plot([na_x, na_x], [0, na_y - 0.05], linewidth=SIZELINE, color=BKCOLOR)
+                plt.text(na_x + na_text_offset, na_y, 'NA', fontsize=na_fontsize)
 
             y_avgs[0] = None
-            y_avgs[4] = None
+            y_avgs[-1] = None
+
         elif row == 0:
-            scatter_indices = np.array([_ for _ in range(len(ys)) if _ not in [0, 4]])
+            scatter_indices = np.array([_ for _ in range(len(ys)) if method_list[_] not in ['true_cov', 'SL']])
+
+            na_xy_list = [(0, 0.6), (len(method_list) - 1, 0.6)]
+            plt.sca(ax)
+            for na_x, na_y in na_xy_list:
+                plt.plot([na_x, na_x], [0, na_y - 0.2], linewidth=SIZELINE, color=BKCOLOR)
+                plt.text(na_x + na_text_offset, na_y, 'NA', fontsize=na_fontsize)
             plt.sca(ax)
 
-            na_x, na_y = 3.6, 0.6
-            plt.plot([4, 4], [0, na_y - 0.2], linewidth=SIZELINE, color=BKCOLOR)
-            plt.text(na_x, na_y, 'NA', fontsize=SIZESUBLABEL)
-
-            na_x, na_y = -0.4, 0.6
-            plt.plot([0, 0], [0, na_y - 0.2], linewidth=SIZELINE, color=BKCOLOR)
-            plt.text(na_x, na_y, 'NA', fontsize=SIZESUBLABEL)
             y_avgs[0] = None
-            y_avgs[4] = None
+            y_avgs[-1] = None
+
         else:
             scatter_indices = np.arange(0, len(ys))
 
@@ -1017,6 +1991,16 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
             ys[ys <= floor] = floor
         if ceil is not None:
             ys[ys >= ceil] = ceil
+
+        # for ys_ in ys:
+        #     if floor is not None:
+        #         for i, y_ in enumerate(ys_):
+        #             if y_ <= floor:
+        #                 ys_[i] = floor
+        #     if ceil is not None:
+        #         for i, y_ in enumerate(ys_):
+        #             if y_ >= ceil:
+        #                 ys_[i] = ceil
 
         pprops['facecolor'] = ['None' for _c1 in range(len(xs))]
         pprops['edgecolor'] = [eclist[_] for _ in scatter_indices]
@@ -1111,11 +2095,14 @@ def plot_figure_clusterizations_LTEE(populations, clusterizations):
     pass
 
 
-def get_axes_for_reconstruction_example_LTEE():
+def get_axes_for_reconstruction_example_LTEE(figsize=None, small_cov_box=False):
     ratio   = 0.33
     w       = DOUBLE_COLUMN
     h       = ratio * w
-    fig     = plt.figure(figsize=(w, h))
+    if figsize is not None:
+        fig = plt.figure(figsize=figsize)
+    else:
+        fig = plt.figure(figsize=(w, h))
 
     divider_width = 0.1
     box_left = 0.065
@@ -1137,10 +2124,19 @@ def get_axes_for_reconstruction_example_LTEE():
     box_middle = cov_right - divider_width - cov_width
     cov_left = box_middle + divider_width
 
+    if small_cov_box:
+        cov_right = 0.95
+        cov_bottom = box_bottom + 0.15
+        cov_top = box_top - 0.15
+        cov_width = ratio * (cov_top - cov_bottom) + cbar_width
+        box_middle_ = cov_right - divider_width - cov_width
+        cov_left = box_middle_ + divider_width
+
     traj_boxes = [dict(left=box_left,
                   right=box_middle,
                   bottom=box_top-((i+1)*dy)-(i*ddy),
                   top=box_top-(i*dy)-(i*ddy)) for i in range(2)]
+
     cov_box = dict(left=cov_left,
                    right=cov_right,
                    bottom=cov_bottom,
@@ -1152,31 +2148,13 @@ def get_axes_for_reconstruction_example_LTEE():
     return fig, axes
 
 
-def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, alpha=0.4, plotIntpl=True, ylim=(-0.03, 1.03), bbox_to_anchor_legend=(-0.005, 0.5), annotation_line_size=SIZEANNOTATION, legend_frameon=False, plot_legend_out_on_the_right=True, save_file=None):
+def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, directory=LH.CLUSTERIZATION_OUTPUT_DIR, flattened=False, alpha=0.4, plotIntpl=True, ylim=(-0.03, 1.03), linewidth=SIZELINE, bbox_to_anchor_legend=(-0.005, 0.5), annotation_line_size=SIZEANNOTATION, legend_frameon=False, plot_legend_out_on_the_right=True, save_file=None, figsize=None):
 
-    if False:
-        pass
-        # nRow, nCol = 7, 5
-        # divider_rowspan = 1
-        # fig = plt.figure(figsize=(w, w))
-        #
-        # ax1_rowspan = int((nRow - num_divider * divider_rowspan) / (2 * ax2_ax1_rowspan_ratio + 1))
-        # ax2_rowspan = int(ax1_rowspan * ax2_ax1_rowspan_ratio)
-        # ax2_colspan = nCol//2 - 1
-        #
-        # ax1 = plt.subplot2grid((nRow, nCol), (0, 0), rowspan=ax1_rowspan, colspan=nCol)
-        # ax2 = plt.subplot2grid((nRow, nCol), (ax1_rowspan + divider_rowspan, 0), rowspan=ax2_rowspan, colspan=ax2_colspan)
-        # ax3 = plt.subplot2grid((nRow, nCol), (ax1_rowspan + divider_rowspan, nCol//2 + 1), rowspan=ax2_rowspan, colspan=ax2_colspan)
-        # ax4 = plt.subplot2grid((nRow, nCol), (ax1_rowspan + ax2_rowspan + divider_rowspan, 0), rowspan=ax2_rowspan, colspan=ax2_colspan)
-        # res = reconstructions[pop]
-        # alpha_ = alpha if len(data[pop]['sites_intpl']) <= 1000 else 0.1
-
-    # w = DOUBLE_COLUMN
-    # fig, axes = plt.subplots(2, 1, figsize=(w, 0.3 * w))
-    fig, axes = get_axes_for_reconstruction_example_LTEE()
+    fig, axes = get_axes_for_reconstruction_example_LTEE(figsize=figsize)
     xlabel, ylabel = 'Generation', 'Frequency'
     xticks = range(0, 60001, 10000)
-    tStart, tEnd = reconstruction.times[0], reconstruction.times[-1]
+    # tStart, tEnd = reconstruction.times[0], reconstruction.times[-1]
+    tStart, tEnd = 0, 60500
     if pop in EXCHANGE_FIRST_TWO_CLADES_LTEE and EXCHANGE_FIRST_TWO_CLADES_LTEE[pop]:
         clade_colors = {
             0: LTEE_EXTINCT_COLOR,
@@ -1207,7 +2185,7 @@ def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, alpha=0.4
 
     plt.sca(axes[0])
     ax = plt.gca()
-    AP.plotTotalCladeFreq(reconstruction.cladeFreqWithAncestor, cladeMuts=reconstruction.cladeMuts, otherMuts=reconstruction.otherMuts, colorAncestorFixedRed=True, traj=reconstruction.traj, times=LH.TIMES_INTPL, colors=clade_colors, alpha=alpha, plotFigure=False, plotLegend=False, plotClade=False, plotShow=False, fontsize=SIZELABEL, linewidth=SIZELINE, legendsize=SIZELEGEND)
+    AP.plotTotalCladeFreq(reconstruction.cladeFreqWithAncestor, cladeMuts=reconstruction.cladeMuts, otherMuts=reconstruction.otherMuts, colorAncestorFixedRed=True, traj=reconstruction.traj, times=reconstruction.times, colors=clade_colors, alpha=alpha, plotFigure=False, plotLegend=False, plotClade=False, plotShow=False, fontsize=SIZELABEL, linewidth=SIZELINE, legendsize=SIZELEGEND)
     plt.xlim(xlim)
     plt.ylim(ylim)
     plt.xticks(ticks=xticks, labels=[])
@@ -1261,7 +2239,7 @@ def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, alpha=0.4
 
     plt.sca(axes[2])
     ax = plt.gca()
-    segmentedIntDxdx, groups = LH.load_dxdx_for_LTEE(pop)
+    segmentedIntDxdx, groups = LH.load_dxdx_for_LTEE(pop, directory=directory)
     plot_dxdx_heatmap(segmentedIntDxdx, groups, as_subplot=True)
     plt.setp(ax.spines.values(), **DEF_AXPROPS)
     plt.text(x=-0.07, y=0.97, s=SUBLABELS[2], transform=ax.transAxes, **DEF_SUBLABELPROPS)
@@ -1275,10 +2253,330 @@ def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, alpha=0.4
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
 
 
+def plot_figure_reconstruction_example_LTEE_two_periods(pop, rec1, rec2, data, directory=LH.CLUSTERIZATION_OUTPUT_DIR, flattened=False, alpha=0.15, alpha_shared_muts=0.3, plotIntpl=True, ylim=(-0.03, 1.03), linewidth=SIZELINE, linewidth_shared_muts=SIZELINE, bbox_to_anchor_legend=(-0.005, 0.5), annotation_line_size=SIZEANNOTATION, legend_frameon=False, plot_legend_out_on_the_right=True, save_file=None, figsize=None):
+
+    fig, axes = get_axes_for_reconstruction_example_LTEE(figsize=figsize)
+    xlabel, ylabel = 'Generation', 'Frequency'
+    xticks = range(0, 60001, 10000)
+    tStart, tEnd = 0, 60500
+    if pop in EXCHANGE_FIRST_TWO_CLADES_LTEE and EXCHANGE_FIRST_TWO_CLADES_LTEE[pop]:
+        clade_colors = {
+            0: LTEE_EXTINCT_COLOR,
+            1: LTEE_MINOR_FIXED_COLOR,
+            2: LTEE_MAJOR_FIXED_COLOR,
+            3: '#64af31',
+            4: '#cd7af5',
+        }
+    else:
+        clade_colors = {
+            0: LTEE_EXTINCT_COLOR,
+            1: LTEE_MAJOR_FIXED_COLOR,
+            2: LTEE_MINOR_FIXED_COLOR,
+            3: '#64af31',
+            4: '#cd7af5',
+        }
+
+    plt.sca(axes[0])
+    ax = plt.gca()
+    traj = data[pop]['traj']
+    times = LH.TIMES_INTPL
+    identity_to_muts = compare_cladeMuts(rec1, rec2)
+
+    cladeMuts = []
+    for k in range(rec1.numClades):
+        cladeMuts.append(identity_to_muts[k][-1])
+    for k in range(rec2.numClades):
+        cladeMuts.append(identity_to_muts[-1][k])
+
+    sharedMuts = []
+    for k1 in range(rec1.numClades):
+        for k2 in range(rec2.numClades):
+            sharedMuts += identity_to_muts[k1][k2]
+
+    otherMuts = identity_to_muts[-1][-1]
+
+    if plot_legend_out_on_the_right:
+        if len(cladeMuts) >= 4:
+            bbox_to_anchor_legend = (1, 0.45)
+        else:
+            bbox_to_anchor_legend = (1, 0.5)
+        xlim = (tStart - 500, tEnd + 500)
+        sublabel_x, sublabel_y = -0.112, 0.957
+    else:
+        xlim = (tStart - 2500, tEnd + 500)
+        sublabel_x, sublabel_y = -0.05, 1
+
+    for l in otherMuts:
+        if traj[-1, l] <= rec1.thExtinct:
+            plt.plot(times, traj[:, l], color=clade_colors[0], linewidth=0.5 * linewidth, alpha=alpha)
+        else:
+            plt.plot(times, traj[:, l], color=LTEE_ANCESTOR_FIXED_COLOR, linewidth=0.5 * linewidth, alpha=alpha)
+    for c in range(1, len(cladeMuts) + 1):
+        for l in cladeMuts[c - 1]:
+            plt.plot(times, traj[:, l], color=clade_colors[c], linewidth=0.5 * linewidth, alpha=alpha)
+    for l in sharedMuts:
+        plt.plot(times, traj[:, l], color=LTEE_INFERRED_SHARED_COLOR, linewidth=linewidth_shared_muts, alpha=alpha_shared_muts, zorder=10)
+
+    plt.xlim(xlim)
+    plt.ylim(ylim)
+    plt.xticks(ticks=xticks, labels=[])
+
+    labels = [f'Clade {c+1}' for c in range(len(cladeMuts))]
+    handles = [matplotlib.lines.Line2D([], [], color=LTEE_ANCESTOR_FIXED_COLOR, label='Ancestor')] + [matplotlib.lines.Line2D([], [], color=LTEE_MAJOR_FIXED_COLOR, label=labels[0]),
+     matplotlib.lines.Line2D([], [], color=LTEE_MINOR_FIXED_COLOR, label=labels[1])] + [matplotlib.lines.Line2D([], [], color=clade_colors[c + 1], label=labels[c]) for c in range(2, len(cladeMuts))] + [matplotlib.lines.Line2D([], [], color=LTEE_INFERRED_SHARED_COLOR, label='Shared acr-\noss clades')] + [matplotlib.lines.Line2D([], [], color=LTEE_EXTINCT_COLOR, label='Extinct')]
+    plt.legend(handles=handles, fontsize=SIZELEGEND, loc='center left', bbox_to_anchor=bbox_to_anchor_legend, frameon=legend_frameon)
+    ax.tick_params(**DEF_TICKPROPS)
+    plt.ylabel(ylabel, fontsize=SIZELABEL)
+    plt.setp(ax.spines.values(), **DEF_AXPROPS)
+    plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[0], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+    # plt.title(f"Population {pop}", fontsize=SIZELABEL)
+
+    plt.sca(axes[1])
+    ax = plt.gca()
+    plotted_clades = set()
+    if plotIntpl:
+        sites = data[pop]['sites_intpl']
+    else:
+        sites = data[pop]['sites']
+    for l, site in enumerate(sites):
+        if plotIntpl:
+            times = LH.TIMES_INTPL
+            freqs = data[pop]['traj'][:, l]
+        else:
+            times = data[pop]['times'][l]
+            freqs = data[pop]['freqs'][l]
+        c = data[pop]['site_to_clade'][site]
+        if c == 6:
+            c = 3
+        plt.plot(times, freqs, linewidth=SIZELINE * 0.5, alpha=alpha, color=LH.COLORS[c])
+
+    if pop in LH.populations_nonclonal:
+        handles = [matplotlib.lines.Line2D([], [], color=LTEE_ANCESTOR_FIXED_COLOR, label='Ancestor'),
+                   matplotlib.lines.Line2D([], [], color=LTEE_ANCESTOR_POLYMORPHIC_COLOR, label='Ancestor\npolymorphic'),
+                   matplotlib.lines.Line2D([], [], color=LTEE_EXTINCT_COLOR, label='Extinct')]
+    else:
+        handles = [matplotlib.lines.Line2D([], [], color=LTEE_ANCESTOR_FIXED_COLOR, label='Ancestor'),
+                   matplotlib.lines.Line2D([], [], color=LTEE_MAJOR_FIXED_COLOR, label='Major'),
+                   matplotlib.lines.Line2D([], [], color=LTEE_MINOR_FIXED_COLOR, label='Minor'),
+                   matplotlib.lines.Line2D([], [], color=LTEE_EXTINCT_COLOR, label='Extinct')]
+    plt.legend(handles=handles, fontsize=SIZELEGEND, loc='center left', bbox_to_anchor=bbox_to_anchor_legend, frameon=legend_frameon)
+    plt.xlabel(xlabel, fontsize=SIZELABEL)
+    plt.ylabel(ylabel, fontsize=SIZELABEL)
+    plt.xlim(xlim)
+    plt.ylim(ylim)
+    ax.tick_params(**DEF_TICKPROPS)
+    plt.setp(ax.spines.values(), **DEF_AXPROPS)
+    plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[1], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+
+    plt.sca(axes[2])
+    ax = plt.gca()
+    segmentedIntDxdx, groups = LH.load_dxdx_for_LTEE(pop, directory=directory)
+    for l in range(len(segmentedIntDxdx)):
+        segmentedIntDxdx[l, l] = 0
+    site_to_index = {}
+    index = 0
+    for group in groups:
+        for l in group:
+            site_to_index[l] = index
+            index += 1
+    groups_new = [[] for k in range(len(cladeMuts) + 1)]
+    for l in otherMuts + sharedMuts:
+        groups_new[0].append(site_to_index[l])
+    for k, muts in enumerate(cladeMuts):
+        for l in muts:
+            groups_new[k + 1].append(site_to_index[l])
+
+    segmentedIntDxdx, groups_new = RC.segmentMatrix(segmentedIntDxdx, groups_new)
+    plot_dxdx_heatmap(segmentedIntDxdx, groups_new, as_subplot=True)
+    plt.setp(ax.spines.values(), **DEF_AXPROPS)
+    plt.text(x=-0.07, y=0.97, s=SUBLABELS[2], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+
+    # if legend_frameon:
+    #     plt.subplots_adjust(0.06, 0.15, 0.83, 0.96)
+    # else:
+    #     plt.subplots_adjust(0.06, 0.15, 0.99, 0.96)
+    plt.show()
+    if save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
+def plot_figure_reconstruction_example_LTEE_two_periods_alternative(pop, rec1, rec2, data, directory=LH.CLUSTERIZATION_OUTPUT_DIR, flattened=False, alpha=0.15, alpha_shared_muts=0.3, plotIntpl=True, ylim=(-0.03, 1.03), linewidth=SIZELINE, linewidth_shared_muts=SIZELINE, bbox_to_anchor_legend=(-0.005, 0.5), annotation_line_size=SIZEANNOTATION, legend_frameon=False, plot_legend_out_on_the_right=True, save_file=None, figsize=None):
+
+    fig, axes = get_axes_for_reconstruction_example_LTEE(figsize=figsize, small_cov_box=True)
+    xlabel, ylabel = 'Generation', 'Frequency'
+    xticks = range(0, 60001, 10000)
+    tStart, tEnd = 0, 60500
+    if pop in EXCHANGE_FIRST_TWO_CLADES_LTEE and EXCHANGE_FIRST_TWO_CLADES_LTEE[pop]:
+        clade_colors = {
+            0: LTEE_EXTINCT_COLOR,
+            1: LTEE_MINOR_FIXED_COLOR,
+            2: LTEE_MAJOR_FIXED_COLOR,
+            3: '#64af31',
+            4: '#cd7af5',
+        }
+    else:
+        clade_colors = {
+            0: LTEE_EXTINCT_COLOR,
+            1: LTEE_MAJOR_FIXED_COLOR,
+            2: LTEE_MINOR_FIXED_COLOR,
+            3: '#64af31',
+            4: '#cd7af5',
+        }
+
+    plt.sca(axes[0])
+    ax = plt.gca()
+    traj = data[pop]['traj']
+    times = LH.TIMES_INTPL
+    identity_to_muts = compare_cladeMuts(rec1, rec2)
+
+    cladeMuts = []
+    for k in range(rec1.numClades):
+        cladeMuts.append(identity_to_muts[k][-1])
+    for k in range(rec2.numClades):
+        cladeMuts.append(identity_to_muts[-1][k])
+
+    sharedMuts = []
+    for k1 in range(rec1.numClades):
+        for k2 in range(rec2.numClades):
+            sharedMuts += identity_to_muts[k1][k2]
+
+    otherMuts = identity_to_muts[-1][-1]
+
+    if plot_legend_out_on_the_right:
+        if len(cladeMuts) >= 4:
+            bbox_to_anchor_legend = (1, 0.45)
+        else:
+            bbox_to_anchor_legend = (1, 0.5)
+        xlim = (tStart - 500, tEnd + 500)
+        sublabel_x, sublabel_y = -0.112, 0.957
+    else:
+        xlim = (tStart - 2500, tEnd + 500)
+        sublabel_x, sublabel_y = -0.05, 1
+
+    for l in otherMuts:
+        if traj[-1, l] <= rec1.thExtinct:
+            plt.plot(times, traj[:, l], color=clade_colors[0], linewidth=0.5 * linewidth, alpha=alpha)
+        else:
+            plt.plot(times, traj[:, l], color=LTEE_ANCESTOR_FIXED_COLOR, linewidth=0.5 * linewidth, alpha=alpha)
+    for c in range(1, len(cladeMuts) + 1):
+        for l in cladeMuts[c - 1]:
+            plt.plot(times, traj[:, l], color=clade_colors[c], linewidth=0.5 * linewidth, alpha=alpha)
+    for l in sharedMuts:
+        plt.plot(times, traj[:, l], color=LTEE_INFERRED_SHARED_COLOR, linewidth=linewidth_shared_muts, alpha=alpha_shared_muts, zorder=10)
+
+    plt.xlim(xlim)
+    plt.ylim(ylim)
+    plt.xticks(ticks=xticks, labels=[])
+
+    labels = [f'Clade {c+1}' for c in range(len(cladeMuts))]
+    handles = [matplotlib.lines.Line2D([], [], color=LTEE_ANCESTOR_FIXED_COLOR, label='Ancestor')] + [matplotlib.lines.Line2D([], [], color=LTEE_MAJOR_FIXED_COLOR, label=labels[0]),
+     matplotlib.lines.Line2D([], [], color=LTEE_MINOR_FIXED_COLOR, label=labels[1])] + [matplotlib.lines.Line2D([], [], color=clade_colors[c + 1], label=labels[c]) for c in range(2, len(cladeMuts))] + [matplotlib.lines.Line2D([], [], color=LTEE_INFERRED_SHARED_COLOR, label='Shared acr-\noss clades')] + [matplotlib.lines.Line2D([], [], color=LTEE_EXTINCT_COLOR, label='Extinct')]
+    plt.legend(handles=handles, fontsize=SIZELEGEND, loc='center left', bbox_to_anchor=bbox_to_anchor_legend, frameon=legend_frameon)
+    ax.tick_params(**DEF_TICKPROPS)
+    plt.ylabel(ylabel, fontsize=SIZELABEL)
+    plt.setp(ax.spines.values(), **DEF_AXPROPS)
+    plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[0], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+    # plt.title(f"Population {pop}", fontsize=SIZELABEL)
+
+    plt.sca(axes[1])
+    ax = plt.gca()
+    plotted_clades = set()
+    if plotIntpl:
+        sites = data[pop]['sites_intpl']
+    else:
+        sites = data[pop]['sites']
+    for l, site in enumerate(sites):
+        if plotIntpl:
+            times = LH.TIMES_INTPL
+            freqs = data[pop]['traj'][:, l]
+        else:
+            times = data[pop]['times'][l]
+            freqs = data[pop]['freqs'][l]
+        c = data[pop]['site_to_clade'][site]
+        if c == 6:
+            c = 3
+        plt.plot(times, freqs, linewidth=SIZELINE * 0.5, alpha=alpha, color=LH.COLORS[c])
+
+    if pop in LH.populations_nonclonal:
+        handles = [matplotlib.lines.Line2D([], [], color=LTEE_ANCESTOR_FIXED_COLOR, label='Ancestor'),
+                   matplotlib.lines.Line2D([], [], color=LTEE_ANCESTOR_POLYMORPHIC_COLOR, label='Ancestor\npolymorphic'),
+                   matplotlib.lines.Line2D([], [], color=LTEE_EXTINCT_COLOR, label='Extinct')]
+    else:
+        handles = [matplotlib.lines.Line2D([], [], color=LTEE_ANCESTOR_FIXED_COLOR, label='Ancestor'),
+                   matplotlib.lines.Line2D([], [], color=LTEE_MAJOR_FIXED_COLOR, label='Major'),
+                   matplotlib.lines.Line2D([], [], color=LTEE_MINOR_FIXED_COLOR, label='Minor'),
+                   matplotlib.lines.Line2D([], [], color=LTEE_EXTINCT_COLOR, label='Extinct')]
+    plt.legend(handles=handles, fontsize=SIZELEGEND, loc='center left', bbox_to_anchor=bbox_to_anchor_legend, frameon=legend_frameon)
+    plt.xlabel(xlabel, fontsize=SIZELABEL)
+    plt.ylabel(ylabel, fontsize=SIZELABEL)
+    plt.xlim(xlim)
+    plt.ylim(ylim)
+    ax.tick_params(**DEF_TICKPROPS)
+    plt.setp(ax.spines.values(), **DEF_AXPROPS)
+    plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[1], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+
+    plt.sca(axes[2])
+    ax = plt.gca()
+    plot_identity_comparison(rec1, rec2, identity_to_muts=identity_to_muts)
+    plt.text(x=-0.53, y=1.07, s=SUBLABELS[2], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+
+    # if legend_frameon:
+    #     plt.subplots_adjust(0.06, 0.15, 0.83, 0.96)
+    # else:
+    #     plt.subplots_adjust(0.06, 0.15, 0.99, 0.96)
+    plt.show()
+    if save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
+def compare_cladeMuts(rec1, rec2):
+    identity_counts = np.zeros((rec1.numClades + 1, rec2.numClades + 1))
+    identity_to_muts = [[[] for k2 in range(rec2.numClades + 1)] for k1 in range(rec1.numClades + 1)]
+    rec2_mut_to_clade = {}
+    for k, muts in enumerate(rec2.cladeMuts + [rec2.otherMuts]):
+        for mut in muts:
+            rec2_mut_to_clade[mut] = k
+    for k1, muts in enumerate(rec1.cladeMuts + [rec1.otherMuts]):
+        for mut in muts:
+            k2 = rec2_mut_to_clade[mut]
+            identity_counts[k1, k2] += 1
+            identity_to_muts[k1][k2].append(mut)
+    return identity_to_muts
+
+
+def plot_identity_comparison(rec1, rec2, identity_to_muts=None, square=True, 
+                      xticklabels_rotation=0, yticklabels_rotation=0):
+
+    if identity_to_muts is None:
+        identity_to_muts = compare_cladeMuts(rec1, rec2)
+
+    identity_counts = np.zeros((rec1.numClades + 1, rec2.numClades + 1))
+    for k1, muts1 in enumerate(rec1.cladeMuts + [rec1.otherMuts]):
+        for k2, muts2 in enumerate(rec2.cladeMuts + [rec2.otherMuts]):
+            identity_counts[k1, k2] = len(identity_to_muts[k1][k2])
+
+    ax = plt.gca()
+    sns.heatmap(identity_counts, center=0, vmin=0, vmax=None, 
+                cmap=CMAP, square=square, cbar=False, annot=True, fmt='.0f', 
+                annot_kws={"size": SIZEANNOTATION_HEATMAP})
+    yticks = np.arange(0, rec1.numClades + 1) + 0.5
+    yticklabels = [f'Clade {k}' for k in range(1, rec1.numClades + 1)] + ['Other']
+    xticks = np.arange(0, rec2.numClades + 1) + 0.5
+    xticklabels = [f'Clade {k}' for k in range(rec1.numClades + 1, rec1.numClades + rec2.numClades + 1)] + ['Other']
+    plt.xticks(ticks=xticks, labels=xticklabels, fontsize=SIZELABEL, rotation=xticklabels_rotation)
+    plt.yticks(ticks=yticks, labels=yticklabels, fontsize=SIZELABEL, rotation=yticklabels_rotation)
+    ax.tick_params(**DEF_TICKPROPS_HEATMAP)
+    plt.setp(ax.spines.values(), **DEF_AXPROPS)
+    plt.xlabel('Clades inferred in second period', fontsize=SIZELABEL)
+    plt.ylabel('Clades inferred in first period', fontsize=SIZELABEL)
+
+
 def plot_dxdx_heatmap(dxdx, groups, as_subplot=False, ylabel_x=-0.21, alpha=0.5, grid_line_offset=0, cbar_shrink=1, xtick_distance=40, figsize=(4, 3), rasterized=True, save_file=None):
 
     L = len(dxdx)
-    if L > 1000:
+    if L > 6000:
+        xtick_distance = 1000
+    elif L > 1000:
         xtick_distance = 400
     if not as_subplot:
         fig = plt.figure(figsize=figsize)
@@ -1457,7 +2755,8 @@ def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arran
 
         if mark_nonclonal_with_horizontal_text:
             t = plt.text(-2.25, -0.46, 'No clonal structure inferred previously', transform=ax.transAxes, fontsize=SIZELABEL, color='black')
-            bbox = matplotlib.patches.FancyBboxPatch((-9.55, 6.7), 12.25, 0.8, clip_on=False, linewidth=0.6, edgecolor=bbox_color, facecolor=bbox_color, alpha=bbox_alpha)
+            # bbox = matplotlib.patches.FancyBboxPatch((-9.55, 6.7), 12.25, 0.8, clip_on=False, linewidth=0.6, edgecolor=bbox_color, facecolor=bbox_color, alpha=bbox_alpha)
+            bbox = matplotlib.patches.FancyBboxPatch((-9.55, 5.5), 12.25, 0.42, clip_on=False, linewidth=0.6, edgecolor=bbox_color, facecolor=bbox_color, alpha=bbox_alpha)
             ax.add_patch(bbox)
 
         if mark_nonclonal_with_vertical_text:
@@ -1485,7 +2784,7 @@ def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arran
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
 
 
-def get_axes_for_performance_on_real_data(plot_single_column=True):
+def get_axes_for_performance_on_real_data(plot_single_column=True, perf_box_squeeze=0.1):
     if plot_single_column:
         ratio   = 1.8
         w       = SINGLE_COLUMN
@@ -1546,8 +2845,8 @@ def get_axes_for_performance_on_real_data(plot_single_column=True):
         box_middle = cov_right - divider_width - cov_width
         cov_left = box_middle + divider_width
 
-        perf_left = box_left + 0.1
-        perf_right = box_middle - 0.1
+        perf_left = box_left + perf_box_squeeze
+        perf_right = box_middle - perf_box_squeeze
         perf_bottom = box_bottom - 0.04
         perf_top = 0.28
 
@@ -1609,7 +2908,7 @@ def plot_perf_bars(measured_fitness, inferred_fitness_list, ylabel=LABEL_SPEARMA
     hist_props = dict(lw=SIZELINE/2, width=0.5, align='center', orientation='vertical',
                       edgecolor=[BKCOLOR for i in range(len(methods))])
 
-    xlim, ylim = [-0.6, 4], [0, 1]
+    xlim, ylim = [-0.6, len(methods)], [0, 1]
     xs, labels = np.arange(0, len(methods)), methods
     if use_pearsonr:
         ys = [stats.pearsonr(measured_fitness, inferred_fitness)[0] for inferred_fitness in inferred_fitness_list]
@@ -1646,7 +2945,7 @@ def plot_clade_annotation(annotXs, annotYs, clade_colors, clade_labels, backgrou
         ax.add_patch(patch)
 
 
-def plot_figure_performance_on_data_PALTE(traj, reconstruction, measured_fitness_by_pop, inferred_fitness_by_pop_list, times=PALTEanalysis.TIMES, plot_single_column=False, use_pearsonr=False, plot_muller_plot=True, background_width=83, background_width_for_ancestor=93, background_height=0.09, background_color='#f2f2f2', methods=PALTEanalysis.METHODS, alpha=0.5, ylim=(-0.03, 1.03), grid_line_offset=-0.5, save_file=None):
+def plot_figure_performance_on_data_PALTE(traj, reconstruction, measured_fitness_by_pop, inferred_fitness_by_pop_list, times=PALTEanalysis.TIMES, plot_single_column=False, use_pearsonr=False, plot_muller_plot=True, background_width=65, background_width_for_ancestor=75, background_height=0.09, background_color='#f2f2f2', methods=PALTEanalysis.METHODS, alpha=0.5, ylim=(-0.03, 1.03), grid_line_offset=-0.5, save_file=None):
 
     fig, axes = get_axes_for_performance_on_real_data(plot_single_column=plot_single_column)
 
@@ -1672,8 +2971,8 @@ def plot_figure_performance_on_data_PALTE(traj, reconstruction, measured_fitness
     if plot_muller_plot:
         reconstruction.getMullerCladeFreq(mullerColors=clade_colors)
         plt.stackplot(reconstruction.times, reconstruction.mullerCladeFreq.T, colors=reconstruction.mullerColors)
-        annotXs = [20, 80, 100, 300, 260, 350]
-        annotYs = [0.8, 0.15, 0.45, 0.15, 0.5, 0.7]
+        annotXs = [20, 80, 90, 100, 300, 350, 500]
+        annotYs = [0.8, 0.15, 0.45, 0.65, 0.1, 0.65, 0.85]
         plot_clade_annotation(annotXs, annotYs, clade_colors, clade_labels, background_width=background_width, background_width_for_ancestor=background_width_for_ancestor, background_height=background_height, background_color=background_color)
     else:
         annotXs = [50, 100, 150, 350, 280, 500]
@@ -1685,7 +2984,7 @@ def plot_figure_performance_on_data_PALTE(traj, reconstruction, measured_fitness
     plt.sca(axes[2])
     ax = plt.gca()
     plot_cov_heatmap(reconstruction, ylabel_x=-0.21 if plot_single_column else -0.32, alpha=alpha, grid_line_offset=grid_line_offset, xtick_distance=40)
-    plt.text(x=1.08, y=sublabel_y, s=SUBLABELS[3], transform=axes[0].transAxes, **DEF_SUBLABELPROPS)
+    plt.text(x=1.06, y=sublabel_y, s=SUBLABELS[3], transform=axes[0].transAxes, **DEF_SUBLABELPROPS)
 
     plt.sca(axes[3])
     ax = plt.gca()
@@ -1720,10 +3019,9 @@ def plot_figure_fitness_biplot_PALTE(measured_fitness_by_pop, inferred_fitness_b
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
 
 
+def plot_figure_performance_on_data_tobramycin(traj, reconstruction, measured_MIC_list, median_inferred_fitness_lists, times=tobramycin_analysis.TIMES_PA, plot_single_column=False, use_pearsonr=False, plot_muller_plot=True, background_width=9, background_height=0.09, background_color='#f2f2f2', methods=tobramycin_analysis.METHODS, alpha=0.5, xticks=np.arange(0, 90, 10), ylim=(-0.03, 1.03), grid_line_offset=0, save_file=None):
 
-def plot_figure_performance_on_data_tobramycin(traj, reconstruction, measured_MIC_list, median_inferred_fitness_lists, times=tobramycin_analysis.TIMES_PA, plot_single_column=False, use_pearsonr=False, plot_muller_plot=True, background_width=9, background_height=0.09, background_color='#f2f2f2', methods=tobramycin_analysis.METHODS, alpha=0.5, xticks=np.arange(0, 90, 10), ylim=(-0.03, 1.03), grid_line_offset=-0.02, save_file=None):
-
-    fig, axes = get_axes_for_performance_on_real_data(plot_single_column=plot_single_column)
+    fig, axes = get_axes_for_performance_on_real_data(plot_single_column=plot_single_column, perf_box_squeeze=0.07)
 
     xlim = (-2, 80)
     ylim = (-0.04, 1.04)
@@ -1743,8 +3041,10 @@ def plot_figure_performance_on_data_tobramycin(traj, reconstruction, measured_MI
     if plot_muller_plot:
         reconstruction.getMullerCladeFreq(mullerColors=clade_colors)
         plt.stackplot(reconstruction.times, reconstruction.mullerCladeFreq.T, colors=reconstruction.mullerColors)
-        annotXs = [2, 65, 15, 70, 30]
-        annotYs = [0.8, 0.25, 0.45, 0.8, 0.7]
+        # annotXs = [2, 65, 15, 30, 30]
+        # annotYs = [0.8, 0.25, 0.45, 0.7, 0.7]
+        annotXs = [2, 15, 50, 70, 30]
+        annotYs = [0.8, 0.4, 0.55, 0.8, 0.7]
         plot_clade_annotation(annotXs, annotYs, clade_colors, clade_labels, background_width=background_width, background_width_for_ancestor=background_width + 1.5, background_height=background_height, background_color=background_color)
         # for x, y, color, label in zip(annotXs, annotYs, clade_colors, clade_labels):
         #     plt.text(x, y, label, fontsize=SIZEANNOTATION, color=color, zorder=10)
@@ -1770,3 +3070,130 @@ def plot_figure_performance_on_data_tobramycin(traj, reconstruction, measured_MI
     plt.show()
     if save_file:
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
+
+def plot_figure_runtime_LTEE(populations, num_alleles_sorted, run_time, methods=METHODS_COMPARE_RUN_TIME, colors=METHODS_COMPARE_RUN_TIME_COLORS, markers=MARKERS_METHODS_COMPARE_RUN_TIME, markersize=1.5*SIZEDOT, fit_linear_regression=True, plot_linear_regression=True, plot_fake_time=True, max_run_time=336, save_file=None):
+
+    ratio = 0.5
+    w = DOUBLE_COLUMN
+    h = ratio * w
+    fig = plt.figure(figsize=(w, h))
+    ax = plt.gca()
+
+    xs_all = np.array(num_alleles_sorted)
+    xs_mutators = xs_all[6:]
+    xlabel = 'Number of alleles'
+    ylabel = 'Run time (hour)'
+    yticks = [1e-3, 1e-2, 1e-1, 1, 1e1, 1e2, 336]
+    yticklabels = [0.001, 0.01, 0.1, 1, 10, 100, '>336']
+    xticks = [100, 500, 1000, 5000, 10000]
+    xticklabels = xticks
+    ylim = (1e-3, 370)
+    xlim = (1e2, 2e4)
+
+    for i, (method, color, marker) in enumerate(zip(methods, colors, markers)):
+        indices = [_ for _, time in enumerate(run_time[method]) if time != 'nan']
+        ys = np.array(run_time[method])[indices].astype(float)
+        xs = xs_all[indices].astype(float)
+        plt.scatter(xs, ys, label=method, color=color, marker=marker, s=markersize)
+        if fit_linear_regression:
+            reg = stats.linregress(np.log10(xs), np.log10(ys))
+            predictor = lambda x: x * reg.slope + reg.intercept
+            if plot_linear_regression and method == 'recovered':
+                xs = [1.5e2, 1.5e4]
+                ys = [10 ** predictor(np.log10(x)) for x in xs]
+                print(f'method={method}, slope=%.3f, intercept=%.3f, rvalue=%.3f, pvalue=%.3f' % (reg.slope, reg.intercept, reg.rvalue, reg.pvalue))
+                plt.plot(xs, ys, color=color, linewidth=SIZELINE * 1.5, linestyle='dashed', label=r"$y=10^{-5.55}x^{1.62}$" + ", Pearson's " + r'$r=$' + '%.3f'%reg.rvalue)
+
+        if plot_fake_time:
+            indices = [_ for _, time in enumerate(run_time[method]) if time == 'nan']
+            if indices:
+                xs = xs_all[indices].astype(float)
+                ys = np.full((len(xs)), max_run_time) 
+                # plt.scatter(xs, ys, color=color, marker=marker, s=markersize, facecolors='none')
+                plt.scatter(xs, ys, color=color, marker=marker, s=markersize)
+
+    # plt.plot([1.5e2, 1e4], [max_run_time] * 2, color=GREY_COLOR_HEX, linewidth=SIZELINE * 1.5, linestyle='dashed')
+    # plt.text(1.1e4, 280, '2 weeks', fontsize=SIZELABEL)
+
+    # plt.plot(xs_mutators, [24] * len(xs_mutators), color=GREY_COLOR_HEX, linewidth=SIZELINE, linestyle='dashed')
+    # plt.text(xs_all[6] - 1200, 20, '1 day', fontsize=SIZELABEL)
+
+    plt.xscale('log')
+    plt.yscale('log')
+
+    set_ticks_labels_axes(xlim=xlim, ylim=ylim, ylabel=ylabel, yticks=yticks, yticklabels=yticklabels, xlabel=xlabel, xticks=xticks, xticklabels=xticklabels)
+    # def_tickprops = {key: value for key, value in DEF_TICKPROPS.items()}
+    # def_tickprops['top'] = 'none'
+    # plt.gca().tick_params(**def_tickprops)
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    plt.legend(loc='lower right', fontsize=SIZELEGEND)
+
+    plt.show()
+    if save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
+def save_subfigure_for_merge_periods(reconstruction, clade_colors=None, save_file_prefix=None, postfix='.pdf', def_saveprops={}, linewidth=2*SIZELINE, cladeFreqLinestyle='solid', alleleFreqAlpha=0.4, ylim=(0.001, 0.999)):
+
+
+    if clade_colors is None:
+        clade_colors = sns.husl_palette(reconstruction.numClades + 2)
+
+    traj_width = 2
+    traj_height = traj_width * 0.35
+    heatmap_height = traj_height
+
+    # Periods
+    clade_index_offset = 0
+    ancestor_clade_index = -1
+    for i, period in enumerate(reconstruction.periods):
+        period_traj_width = traj_width * (period.times[-1] - period.times[0]) / (reconstruction.times[-1] - reconstruction.times[0])
+        fig = AP.plotCladeAndMutFreq_overview(period, colors=clade_colors, ylim=ylim, clade_index_offset=clade_index_offset, ancestor_clade_index=ancestor_clade_index, fontsize=SIZELABEL, cladeFreqLinestyle=cladeFreqLinestyle, alleleFreqAlpha=alleleFreqAlpha, linewidth=linewidth, plotLegend=False, legendsize=SIZELEGEND, title='', plotFigure=True, figsize=(period_traj_width, traj_height), returnFig=True, plotShow=False)
+        ax = plt.gca()
+        ancestor_clade_index = clade_index_offset + np.argmax(period.cladeFreq[-1])
+        clade_index_offset += period.numClades
+        set_ticks_labels_axes(xlim=None, ylim=None, xticks=[], xticklabels=[], ylabel=None, yticks=[], yticklabels=[])
+        plt.subplots_adjust(0, 0, 1, 1)
+        plt.axis('off')
+        if save_file_prefix is not None:
+            fig.savefig(f'{save_file_prefix}-traj-{i}' + postfix, facecolor=fig.get_facecolor(), **DEF_FIGPROPS, **def_saveprops)
+
+    fig = AP.plotCladeAndMutFreq_overview(reconstruction, colors=clade_colors, ylim=ylim, clade_index_offset=0, ancestor_clade_index=-1, fontsize=SIZELABEL, cladeFreqLinestyle=cladeFreqLinestyle, alleleFreqAlpha=alleleFreqAlpha, linewidth=linewidth, plotLegend=False, legendsize=SIZELEGEND, title='', plotFigure=True, figsize=(traj_width, traj_height), returnFig=True, plotShow=False)
+    ax = plt.gca()
+    set_ticks_labels_axes(xlim=None, ylim=None, xticks=[], xticklabels=[], ylabel=None, yticks=[], yticklabels=[])
+    plt.subplots_adjust(0, 0, 1, 1)
+    plt.axis('off')
+    if save_file_prefix is not None:
+        fig.savefig(f'{save_file_prefix}-traj-{len(reconstruction.periods)}' + postfix, facecolor=fig.get_facecolor(), **DEF_FIGPROPS, **def_saveprops)
+
+    # Refined periods
+    refined_period_colors_list = [
+        clade_colors,
+        [clade_colors[0], clade_colors[2], clade_colors[1], clade_colors[3], clade_colors[4]],
+    ]
+    for i, period in enumerate(reconstruction.refinedPeriods):
+        refined_period_colors = refined_period_colors_list[i]
+        period_traj_width = traj_width * (period.times[-1] - period.times[0]) / (reconstruction.times[-1] - reconstruction.times[0])
+        print(period.cladeFreq.shape, clade_index_offset, len(clade_colors)) 
+        fig = AP.plotCladeAndMutFreq_overview(period, colors=refined_period_colors, ylim=ylim, fontsize=SIZELABEL, ancestor_clade_index=-1 if i == 0 else 0, clade_index_offset=0 if i == 0 else 1, cladeFreqLinestyle=cladeFreqLinestyle, alleleFreqAlpha=alleleFreqAlpha, linewidth=linewidth, plotLegend=False, legendsize=SIZELEGEND, title='', plotFigure=True, figsize=(period_traj_width, traj_height), returnFig=True, plotShow=False)
+        ax = plt.gca()
+        ancestor_clade_index = clade_index_offset + np.argmax(period.cladeFreq[-1])
+        clade_index_offset += period.numClades
+        set_ticks_labels_axes(xlim=None, ylim=None, xticks=[], xticklabels=[], ylabel=None, yticks=[], yticklabels=[])
+        plt.subplots_adjust(0, 0, 1, 1)
+        plt.axis('off')
+        if save_file_prefix is not None:
+            fig.savefig(f'{save_file_prefix}-traj-{i + 1+ len(reconstruction.periods)}' + postfix, facecolor=fig.get_facecolor(), **DEF_FIGPROPS, **def_saveprops)
+
+    plt.close('all')
+
+
+############################################
+#
+# Placeholder
+#
+############################################
+

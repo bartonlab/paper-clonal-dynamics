@@ -4,6 +4,12 @@ __pycache__
 figures_deprecated.ipynb
 figures_additional.ipynb
 recombination.ipynb
+analysis.jpynb
+test_simulation_with_various_settings.ipynb
+scp_commands.ipynb
 
-# Large files
+# Large directories
 data
+jobs
+test_figures
+

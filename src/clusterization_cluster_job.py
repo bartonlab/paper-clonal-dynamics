@@ -17,6 +17,7 @@ def main(verbose=False):
     parser.add_argument('-o', type=str, default=None, help='output destination')
     parser.add_argument('--weightByBothVariance', action='store_true', default=False, help='weight option')
     parser.add_argument('--weightBySmallerVariance', action='store_true', default=True, help='weight option')
+    parser.add_argument('--weightBySmallerInterpolatedVariance', action='store_true', default=True, help='weight option')
 
     arg_list = parser.parse_args(sys.argv[1:])
 
@@ -24,9 +25,10 @@ def main(verbose=False):
     traj = np.load(arg_list.i)
     weightByBothVariance = arg_list.weightByBothVariance
     weightBySmallerVariance = arg_list.weightBySmallerVariance
+    weightBySmallerInterpolatedVariance = arg_list.weightBySmallerInterpolatedVariance
 
     reconstruction = RC.CladeReconstruction(traj)
-    reconstruction.setParamsForClusterization(weightByBothVariance=weightByBothVariance, weightBySmallerVariance=weightBySmallerVariance)
+    reconstruction.setParamsForClusterization(weightByBothVariance=weightByBothVariance, weightBySmallerVariance=weightBySmallerVariance, weightBySmallerInterpolatedVariance=weightBySmallerInterpolatedVariance)
     reconstruction.clusterMutations()
     groups, segmentedIntDxdx = reconstruction.groups, reconstruction.segmentedIntDxdx
 

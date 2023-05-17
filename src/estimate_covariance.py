@@ -219,3 +219,51 @@ def shrinkEigenvalue(eigenvalue, bulk_edge, loss, gamma, bulk_edge_small=0):
             return (max((l ** 2 * c ** 2 + s ** 2) / l, 1))
         elif loss == 9:
             return (max((l - (l - 1) ** 2 * c ** 2 * s ** 2) / (c ** 2 + l * s ** 2) ** 2, 1))
+
+
+############################################
+#
+# Utility functions
+#
+############################################
+
+def computeMetricsForCovarianceEstimation(est_cov_mat, true_cov_mat):
+    """Computes Spearmanr and MAE error between estimated and true covariance matrices, evaluating
+     1. all entries (both covariances and variances)
+     2. off-diagonal entries (only covariances)
+     3. diagonal entries (only variances)
+    """
+    L = len(est_cov_mat)
+    est_all, true_all = [], []
+    for i in range(L):
+        est_all.append(est_cov_mat[i, i])
+        true_all.append(true_cov_mat[i, i])
+    for i in range(L):
+        for j in range(i + 1, L):
+            est_all.append(est_cov_mat[i, j])
+            true_all.append(true_cov_mat[i, j])
+
+    est_all, true_all = np.array(est_all), np.array(true_all)
+    spearmanr_all, error_all = computePerformance(est_all, true_all)
+    spearmanr_off_diagonal, error_off_diagonal = computePerformance(est_all[L:], true_all[L:])
+    spearmanr_diagonal, error_diagonal = computePerformance(est_all[:L], true_all[:L])
+
+    spearmanr_three = np.array([spearmanr_all, spearmanr_off_diagonal, spearmanr_diagonal])
+    error_three = np.array([error_all, error_off_diagonal, error_diagonal])
+    return spearmanr_three, error_three
+
+
+def computePerformance(inferred_selection, true_selection):
+    """Computes Spearmanr and MAE error between inferred and true selections."""
+
+    spearmanr, _ = stats.spearmanr(inferred_selection, true_selection)
+    error = np.mean(np.absolute(inferred_selection - true_selection))
+    return spearmanr, error
+
+
+def get_diagonal_terms(matrix):
+    return [matrix[i, i] for i in range(len(matrix))]
+
+
+def get_off_diagonal_terms(matrix):
+    return [matrix[i, j] for i in range(len(matrix)) for j in range(i)]

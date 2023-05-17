@@ -36,14 +36,22 @@ import infer_fitness as IF
 import print_info as PI
 import LTEE
 import LTEE_helper as LH
+import data_parser as DP
+import simulation_helper as SH
 import lolipop_helper
 
-LOLIPOP_INPUT_DIR = './data/lolipop/input'
-LOLIPOP_OUTPUT_DIR = './data/lolipop/output'
-LOLIPOP_PARSED_OUTPUT_DIR = './data/lolipop/parsed_output'
 
-TOBRAMYCIN_DIR = './data/tobramycin_analysis/paeruginosa_WGS/allele_and_muller_plots/'
+DATA_DIR = './data'
+FIG_DIR = './figures'
+LOCAL_JOBS_DIR = './data/local_jobs'
+JOB_DIR = './jobs'
 
+# relative directories looking from shell scripts in JOB_DIR
+DATA_DIR_REL = '../data'
+SRC_DIR_REL = f'../src'
+
+# tobramycin_analysis
+TOBRAMYCIN_DIR = 'tobramycin_analysis/paeruginosa_WGS/allele_and_muller_plots/'
 NUM_REPLICATES = 3
 MEDIA = ['Biofilm', 'Planktonic']
 PA_ALLELE_FILES = {
@@ -53,9 +61,7 @@ PA_ALLELE_FILES = {
 
 TIMES_AB = (np.array([0, 1, 3, 4, 6, 7, 9, 10, 12]) * 6.64).astype(int)
 TIMES_PA = (np.array([0, 3, 4, 6, 7, 9, 10, 12]) * 6.64).astype(int)
-
-METHODS = ['recovered', 'Lolipop', 'est_cov', 'SL']
-
+METHODS = ['recovered', 'Lolipop', 'Evoracle', 'est_cov', 'SL']
 MU = 1e-6
 REG = 4  # Adjustable through set_reg(reg)
 
@@ -112,11 +118,47 @@ PA_MUTATIONS_TO_MEASURED_MIC_RANGE = {
     'fusA1 T671A ptsP Δ1bp (deletion of nt 1122/2280)': (2.0, 8.0), #
 }
 
+# Lolipop
+LOLIPOP_INPUT_DIR = f'{DATA_DIR}/lolipop/input'
+LOLIPOP_OUTPUT_DIR = f'{DATA_DIR}/lolipop/output'
+LOLIPOP_PARSED_OUTPUT_DIR = f'{DATA_DIR}/lolipop/parsed_output'
+
+# Evoracle
+EVORACLE_PALTE_PARSED_OUTPUT_DIR = f'{DATA_DIR}/evoracle/PALTE_parsed_output'
+EVORACLE_TOB_DIR = f'{DATA_DIR}/evoracle/tobramycin'
+EVORACLE_TOB_DIR_REL = f'{DATA_DIR_REL}/evoracle/tobramycin'
+EVORACLE_TOB_PARSED_OUTPUT_DIR = f'{DATA_DIR}/evoracle/tobramycin_parsed_output'
+EVORACLE_TOB_PARSED_OUTPUT_DIR_REL = f'{DATA_DIR_REL}/evoracle/tobramycin_parsed_output'
+
+
+data_dir = './data'
+try:
+    df_pa_allele, traj_pa
+except:
+    df_pa_allele, traj_pa = None, None
+
+
+def set_data_dir(dir_path):
+    global data_dir
+    data_dir = dir_path
+
+
+def load_df_traj():
+    global df_pa_allele, traj_pa
+    df_pa_allele = init_a_dic()
+    traj_pa = init_a_dic()
+    for medium in MEDIA:
+        for rpl in range(NUM_REPLICATES):
+            df_pa_allele[medium].append(pd.read_csv(f'{data_dir}/{PA_ALLELE_FILES[medium][rpl]}'))
+            traj_pa[medium].append(parse_traj(df_pa_allele[medium][rpl]))
+
+
 ############################################
 #
 # Helper functions
 #
 ############################################
+
 
 def init_a_dic(placeholder=False):
     if placeholder:
@@ -135,6 +177,7 @@ def set_reg(reg):
 #
 ############################################
 
+
 def parse_traj(df):
     T, L = len(df.columns) - 3, len(df)
     # print(f'{L} mutations, {T} timepoints')
@@ -150,14 +193,6 @@ def parse_traj(df):
     return traj, TIMES_PA, genes
 
 
-df_pa_allele = init_a_dic()
-traj_pa = init_a_dic()
-for medium in MEDIA:
-    for rpl in range(NUM_REPLICATES):
-        df_pa_allele[medium].append(pd.read_csv(PA_ALLELE_FILES[medium][rpl]))
-        traj_pa[medium].append(parse_traj(df_pa_allele[medium][rpl]))
-
-
 def parse_muller_files(prefix='pa', output_dir=LOLIPOP_OUTPUT_DIR):
     files = {medium: [None for _ in range(NUM_REPLICATES)] for medium in MEDIA}
     for medium in MEDIA:
@@ -170,9 +205,9 @@ def parse_muller_files(prefix='pa', output_dir=LOLIPOP_OUTPUT_DIR):
 
 def get_reconstruction_from_traj(traj, times, mu=MU, defaultReg=REG, meanReadDepth=100, thFixed=0.98, thLogProbPerTime=10, thFreqUnconnected=1, debug=False, verbose=False, plot=False, evaluateReconstruction=True, evaluateInference=False):
     rec = RC.CladeReconstruction(traj, times=times, meanReadDepth=meanReadDepth, debug=debug, verbose=verbose, plot=plot, mu=mu)
-    rec.setParamsForClusterization(weightByBothVariance=False, weightBySmallerVariance=True)
+    rec.setParamsForClusterization(weightByBothVariance=False, weightBySmallerVariance=False, weightBySmallerInterpolatedVariance=True)
     rec.clusterMutations()
-    rec.setParamsForReconstruction(thFixed=thFixed, thExtinct=0, numClades=None, percentMutsToIncludeInMajorClades=95, thLogProbPerTime=thLogProbPerTime, thFreqUnconnected=thFreqUnconnected)
+    rec.setParamsForReconstruction(thFixed=thFixed, thExtinct=0, numClades=None, thLogProbPerTime=thLogProbPerTime, thFreqUnconnected=thFreqUnconnected)
     rec.checkForSeparablePeriodAndReconstruct()
     rec.setParamsForEvaluation(defaultReg=defaultReg)
     evaluation, inference = rec.evaluate(evaluateReconstruction=evaluateReconstruction, evaluateInference=evaluateInference)
@@ -207,7 +242,7 @@ def parse_Lolipop_results(muForInference=MU, regularization=REG):
     return intCov_lolipop, selection_lolipop, fitness_lolipop
 
 
-def map_gene_to_selection_for_methods(inferences, selection_lolipop, methods=METHODS, genes=PA_GENES_PRESENT):
+def map_gene_to_selection_for_methods(inferences, selection_lolipop, selection_evoracle, methods=METHODS, genes=PA_GENES_PRESENT):
     pa_gene_to_selection_by_method = {method: {} for method in methods}
 
     # Lolipop
@@ -221,9 +256,21 @@ def map_gene_to_selection_for_methods(inferences, selection_lolipop, methods=MET
                 else:
                     pa_gene_to_selection_by_method['Lolipop'][gene].append(infered_selection[l])
 
+
+    # Evoracle
+    for medium in MEDIA:
+        for rpl in range(NUM_REPLICATES):
+            traj, times, genes = traj_pa[medium][rpl]
+            infered_selection = selection_evoracle[medium][rpl]
+            for l, gene in enumerate(genes):
+                if gene not in pa_gene_to_selection_by_method['Evoracle']:
+                    pa_gene_to_selection_by_method['Evoracle'][gene] = [infered_selection[l]]
+                else:
+                    pa_gene_to_selection_by_method['Evoracle'][gene].append(infered_selection[l])
+
     # Other methods
     for method in methods:
-        if method == 'Lolipop':
+        if method in ['Lolipop', 'Evoracle']:
             continue
         for medium in MEDIA:
             for rpl in range(NUM_REPLICATES):
@@ -294,9 +341,9 @@ def parse_mean_inferred_fitness_list(mean_inferred_fitness_by_mutations):
     return mean_inferred_fitness_list
 
 
-def parse_median_inferred_fitness_list_of_methods(inferences, selection_lolipop, methods=METHODS):
+def parse_median_inferred_fitness_list_of_methods(inferences, selection_lolipop, selection_evoracle, methods=METHODS):
 
-    pa_gene_to_selection_by_method = map_gene_to_selection_for_methods(inferences, selection_lolipop, methods=methods)
+    pa_gene_to_selection_by_method = map_gene_to_selection_for_methods(inferences, selection_lolipop, selection_evoracle, methods=methods)
     median_inferred_fitness_lists = []
     for method, gene_to_selection in pa_gene_to_selection_by_method.items():
         all_inferred_fitness_by_mutations = map_mutations_to_all_inferred_fitness(gene_to_selection)
@@ -307,9 +354,86 @@ def parse_median_inferred_fitness_list_of_methods(inferences, selection_lolipop,
 
 ############################################
 #
+# Evoracle
+#
+############################################
+
+
+def save_traj_for_evoracle():
+    global df_pa_allele, traj_pa
+    for medium in MEDIA:
+        for rpl in range(NUM_REPLICATES):
+            traj = traj_pa[medium][rpl][0]
+            file = f'{EVORACLE_TOB_DIR}/{medium}-{rpl}/tobramycin_{medium}-{rpl}_obsreads.csv'
+            DP.save_traj_for_evoracle(traj, file, times=TIMES_PA)
+
+
+def generate_evoracle_scripts(env='evoracle', save_geno_traj=True, partition='intel', overwrite=False):
+    
+    job_prefix = f'evoracle_tobramycin'
+
+    for medium in MEDIA:
+        for rpl in range(NUM_REPLICATES):
+            jobname = f'{job_prefix}_{medium}-{rpl}'
+            command = ''
+            job_pars = {
+                '-o': f'{EVORACLE_TOB_PARSED_OUTPUT_DIR_REL}/evoracle_parsed_output_tobramycin_{medium}-{rpl}.npz',
+                '-i': f'tobramycin_{medium}-{rpl}_obsreads.csv',
+                '-d': f'{EVORACLE_TOB_DIR_REL}/{medium}-{rpl}',
+            }
+            if save_geno_traj:
+                job_pars['--save_geno_traj'] = ''
+            command += f'python {SRC_DIR_REL}/evoracle_batch_job_real_data.py '
+            command += ' '.join([k + ' ' + str(v) for k, v in job_pars.items()])
+            command += '\n'
+            SH.generate_shell_script(JOB_DIR, jobname, command, hours=12, env=env)
+
+    jobname = f'{job_prefix}_submission'
+    command = ''
+    for medium in MEDIA:
+        for rpl in range(NUM_REPLICATES):
+            if overwrite or not test_single_evoracle(medium, rpl):
+                command += f'sbatch -p {partition} {job_prefix}_{medium}-{rpl}.sh\n'
+    SH.generate_shell_script(JOB_DIR, jobname, command, env=env)
+
+
+def test_single_evoracle(medium, rpl):
+    try:
+        res = load_evoracle(medium, rpl)
+        for key in list(res.keys()):
+            res[key]
+        return True
+    except:
+        return False
+
+
+def load_evoracle(medium, rpl, directory=EVORACLE_TOB_PARSED_OUTPUT_DIR):
+    file = f'{directory}/evoracle_parsed_output_tobramycin_{medium}-{rpl}.npz'
+    return np.load(file, allow_pickle=True)
+
+
+def parse_evoracle_results(muForInference=MU, regularization=REG):
+    intCov_evoracle, selection_evoracle, fitness_evoracle = init_a_dic(), init_a_dic(), init_a_dic()
+    for medium in MEDIA:
+        for rpl in range(NUM_REPLICATES):
+            res = load_evoracle(medium, rpl)
+            traj = res['traj']
+            intCov = res['int_cov']
+            selection = res['selection']
+            fitness = lolipop_helper.computeFitness(traj, selection)
+
+            intCov_evoracle[medium].append(intCov)
+            selection_evoracle[medium].append(selection)
+            fitness_evoracle[medium].append(fitness)
+    return intCov_evoracle, selection_evoracle, fitness_evoracle
+
+
+############################################
+#
 # Plotting functions
 #
 ############################################
+
 
 def display_muller_plots(files, NUM_REPLICATES=3, figsize=(10, 6)):
     fig = plt.figure(figsize=figsize)

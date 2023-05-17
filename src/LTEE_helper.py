@@ -1,12 +1,16 @@
 import sys
 import numpy as np
 import seaborn as sns
+import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
 import scipy
 from scipy import stats
+from datetime import datetime
+from tabulate import tabulate
+from timeit import default_timer as timer   # timer for performance
 
 import pickle
 
@@ -15,11 +19,48 @@ import importlib
 sys.path.append('./src')
 import analyze_and_plot as AP
 import reconstruct_clades as RC
+import simulation_helper as SH
 import LTEE
+import lolipop_helper
+import data_parser as DP
 
-DATA_DIRECTORY = './data/LTEE-metagenomic-master/data_files/'
-RECONSTRUCTION_OUTPUT_DIR = './data/reconstruction_output'
-CLUSTERIZATION_OUTPUT_DIR = './data/clusterization_output'
+DATA_DIR = './data'
+JOB_DIR = './jobs'
+
+# relative directories looking from shell scripts in JOB_DIR
+DATA_DIR_REL = '../data'
+EVORACLE_SRC_DIR_REL = '../src'
+
+# LTEE
+LTEE_DATA_DIR = f'{DATA_DIR}/LTEE-metagenomic-master/data_files/'
+CLUSTER_JOBS_DIR = f'{DATA_DIR}/cluster_jobs'
+LTEE_TRAJ_DIR = f'{DATA_DIR}/LTEE_trajectories'
+RECONSTRUCTION_OUTPUT_DIR = f'{DATA_DIR}/reconstruction_output'
+CLUSTERIZATION_OUTPUT_DIR = f'{DATA_DIR}/clusterization_output'
+
+# Lolipop
+LOLIPOP_DIR = f'{DATA_DIR}/lolipop'
+LOLIPOP_JOBS_DIR = f'{LOLIPOP_DIR}/jobs'
+LOLIPOP_INPUT_DIR = f'{LOLIPOP_DIR}/input'
+LOLIPOP_OUTPUT_DIR = f'{LOLIPOP_DIR}/output'
+LOLIPOP_PARSED_OUTPUT_DIR = f'{LOLIPOP_DIR}/parsed_output'
+
+# Relative directory paths looking from CLUSTER_JOBS_DIR
+LTEE_TRAJ_DIR_REL = '../LTEE_trajectories'
+CLUSTERIZATION_OUTPUT_DIR_REL = '../clusterization_output'
+CLUSTERING_SRC_DIR_REL = '../../src'
+
+# Relative directory paths looking from LOLIPOP_JOBS_DIR
+LOLIPOP_INPUT_DIR_REL = '../input'
+LOLIPOP_OUTPUT_DIR_REL = '../output'
+
+# Evoracle
+EVORACLE_LTEE_PARSED_OUTPUT_DIR = f'{DATA_DIR}/evoracle/LTEE_parsed_output'
+EVORACLE_LTEE_DIR = f'{DATA_DIR}/evoracle/LTEE'
+EVORACLE_LTEE_DIR_REL = f'{DATA_DIR_REL}/evoracle/LTEE'
+EVORACLE_LTEE_PARSED_OUTPUT_DIR_REL = f'{DATA_DIR_REL}/evoracle/LTEE_parsed_output'
+
+
 all_lines = ['m5','p2','p4','p1','m6','p5','m1','m2','m3','m4','p3','p6']
 focal_populations = ['p2','m6','m1']
 remaining_populations = ['m5','p1','p4','p5','m2','m3','m4','p3','p6']
@@ -32,6 +73,8 @@ populations_nonclonal = [pop for pop in populations if pop not in populations_cl
 populations_nonmutator = ['m5', 'm6', 'p1', 'p2', 'p4', 'p5']
 populations_mutator = ['m1', 'm2', 'm3', 'm4', 'p3', 'p6']
 populations_doable_mutator = ['m1', 'm2', 'm3', 'm4', 'p3']
+populations_sorted_by_num_alleles = ['p2', 'p4', 'p5', 'm6', 'm5', 'p1', 'm3', 'm2', 'm1', 'm4', 'p3', 'p6']
+num_alleles_sorted = [174, 201, 202, 221, 406, 466, 3255, 3488, 4597, 4872, 6102, 10134]
 
 clade_hmm_states = {'A':0,'E':1,'FB':2,'FM':3, 'Fm':4,'PB':5,'PM':6,'Pm':7,'PB*':8}
 well_mixed_hmm_states = {'A':0,'E':1,'F':2,'P':3}
@@ -67,6 +110,7 @@ LABELS = {
     MAJOR_POLYMORPHIC: 'Major polymorphic'# Major polymorphic
 }
 TIMES_INTPL = np.arange(122) * 500
+TH_FIXED = 0.98
 
 try:
     data
@@ -341,6 +385,150 @@ def getAllelFreq(pop, data_directory=None, verbose=False):
 
 ############################################
 #
+# Clusterization jobs
+#
+############################################  
+
+
+def getFixationTime(freqs, thFixed=0.98, thNumTimePointsAfterFixation=2, thFractionTimePointsAfterFixation=0.05):
+    """
+    Returns fixation time for a mutation (index l), if it gets fixed. Otherwise returns -1.
+    """
+    T = len(freqs)
+    maxFixationTime = max(0, T - max(thNumTimePointsAfterFixation, int(T * thFractionTimePointsAfterFixation)))
+    freqSum = np.sum(freqs)
+    for t in range(maxFixationTime):
+        if freqSum / (T - t) >= thFixed and freqs[t] >= thFixed:
+            return t
+        freqSum -= freqs[t]
+    return -1
+
+
+def getExtinctionTime(freqs, thExtinct=0.01, thNumTimePointsAfterFixation=2, thFractionTimePointsAfterFixation=0.05):
+    """
+    Returns fixation time for a mutation (index l), if it gets fixed. Otherwise returns -1.
+    """
+    T = len(freqs)
+    maxExtinctionTime = max(0, T - max(thNumTimePointsAfterFixation, int(T * thFractionTimePointsAfterFixation)))
+    freqSum = np.sum(freqs)
+    for t in range(maxExtinctionTime):
+        if freqSum / (T - t) <= thExtinct and freqs[t] <= thExtinct:
+            return t
+        freqSum -= freqs[t]
+    return -1
+
+
+def get_flattened_traj(populations_selected=populations, thFixed=0.95, thExtinct=0.05):
+    for pop in populations_selected:
+        traj_flattened, num_flattened = flatten_traj_after_fixation_or_extinction(data[pop]['traj'], thFixed=thFixed, thExtinct=thExtinct)
+        data[pop]['traj_flattened'] = traj_flattened
+
+
+def flatten_traj_after_fixation_or_extinction(traj, thFixed=0.95, thExtinct=0.05):
+    T, L = traj.shape
+    copy = np.copy(traj)
+    num_flattened = 0
+
+    for l in range(L):
+        fixationTime = getFixationTime(copy[:, l], thFixed=thFixed)
+        extinctionTime = getExtinctionTime(copy[:, l], thExtinct=thExtinct)
+        if fixationTime >= 0:
+            copy[fixationTime:, l] = 1
+            num_flattened += 1
+        elif extinctionTime >= 0:
+            copy[extinctionTime:, l] = 0
+            num_flattened += 1
+
+    return copy, num_flattened
+
+
+def save_LTEE_trajectories(populations_selected=populations):
+    for pop in populations_selected:
+        with open(LTEE_TRAJ_DIR + f'/LTEE_traj_pop={pop}.npy', 'wb') as file:
+            np.save(file, data[pop]['traj'])
+
+
+def save_LTEE_trajectories_flattened(populations_selected=populations):
+    for pop in populations_selected:
+        with open(LTEE_TRAJ_DIR + f'/LTEE_traj_flattened_pop={pop}.npy', 'wb') as file:
+            np.save(file, data[pop]['traj_flattened'])
+
+
+def save_LTEE_trajectories_for_a_pop(pop, tStart=None, tEnd=None):
+    if tStart is None:
+        tStart = 0
+    if tEnd is None:
+        tEnd = len(TIMES_INTPL)
+
+    with open(LTEE_TRAJ_DIR + f'/LTEE_traj_pop={pop}_tStart={tStart}_tEnd={tEnd}.npy', 'wb') as file:
+        np.save(file, data[pop]['traj'][tStart:tEnd])
+
+
+def generate_clustering_job_script(populations_selected=populations, env='env_pySCA', partition='batch', weightBySmallerInterpolatedVariance=True, use_flattened_traj=False):
+    if use_flattened_traj:
+        postfix = '_flattened'
+    else:
+        postfix = ''
+    for pop in populations_selected:
+        jobname = f'clusterization{postfix}_pop={pop}'
+        job_pars = {'-i': f'{LTEE_TRAJ_DIR_REL}/LTEE_traj{postfix}_pop={pop}.npy',
+                    '-o': f'{CLUSTERIZATION_OUTPUT_DIR_REL}/clusterization{postfix}_output_pop={pop}',}
+        if weightBySmallerInterpolatedVariance:
+            job_pars['--weightBySmallerInterpolatedVariance'] = ''
+        else:
+            job_pars['--weightBySmallerVariance'] = ''
+        command = f'python {CLUSTERING_SRC_DIR_REL}/clusterization_cluster_job.py '
+        command += ' '.join([k + ' ' + str(v) for k, v in job_pars.items()])
+        command += '\n'
+        if pop == 'p6':
+            mem = 200
+        elif pop == 'p3':
+            mem = 64
+        else:
+            mem = 32
+        SH.generate_shell_script(CLUSTER_JOBS_DIR, jobname, command, mem=mem, hours=12, env=env)
+        
+    jobname = f'clusterization{postfix}_submission'
+    command = ''
+    for pop in populations_selected:
+        if pop == 'p6':
+            command += f'sbatch -p highmem clusterization{postfix}_pop={pop}.sh\n'
+        else:
+            command += f'sbatch -p {partition} clusterization{postfix}_pop={pop}.sh\n'
+    SH.generate_shell_script(CLUSTER_JOBS_DIR, jobname, command)
+
+
+def generate_clustering_job_script_for_a_pop(pop, tStart_list, tEnd_list, env='env_pySCA', partition='batch', weightBySmallerInterpolatedVariance=True):
+    for i, (tStart, tEnd) in enumerate(zip(tStart_list, tEnd_list)):
+        jobname = f'clusterization_pop={pop}_tStart={tStart}_tEnd={tEnd}'
+        job_pars = {'-i': f'{LTEE_TRAJ_DIR_REL}/LTEE_traj_pop={pop}_tStart={tStart}_tEnd={tEnd}.npy',
+                    '-o': f'{CLUSTERIZATION_OUTPUT_DIR_REL}/clusterization_output_pop={pop}_tStart={tStart}_tEnd={tEnd}',}
+        if weightBySmallerInterpolatedVariance:
+            job_pars['--weightBySmallerInterpolatedVariance'] = ''
+        else:
+            job_pars['--weightBySmallerVariance'] = ''
+        command = f'python {CLUSTERING_SRC_DIR_REL}/clusterization_cluster_job.py '
+        command += ' '.join([k + ' ' + str(v) for k, v in job_pars.items()])
+        command += '\n'
+        if pop == 'p6':
+            mem = 200
+        elif pop == 'p3':
+            mem = 64
+        else:
+            mem = 32
+        SH.generate_shell_script(CLUSTER_JOBS_DIR, jobname, command, mem=mem, hours=12, env=env)
+    
+    jobname = f'clusterization_pop={pop}_submission'
+    command = ''
+    for i, (tStart, tEnd) in enumerate(zip(tStart_list, tEnd_list)):
+        if pop == 'p6':
+            command += f'sbatch -p highmem clusterization_pop={pop}_tStart={tStart}_tEnd={tEnd}.sh\n'
+        else:
+            command += f'sbatch -p {partition} clusterization_pop={pop}_tStart={tStart}_tEnd={tEnd}.sh\n'
+    SH.generate_shell_script(CLUSTER_JOBS_DIR, jobname, command)
+
+############################################
+#
 # Clade Reconstruction
 #
 ############################################
@@ -354,16 +542,32 @@ def getClusterForAPopulation(mu=1e-10, debug=False, verbose=False, plot=True):
     return simulation.groups, simulation.segmentedIntDxdx
 
 
-def reconstructForAPopulationAsOnePeriod(pop, tStart=0, tEnd=len(TIMES_INTPL), groups=None, segmentedIntDxdx=None, clusterResult=None, mu=1e-10, thFixed=0.99, thExtinct=0.01, thFixedWithinClade=0.9, thCollapse=0.9, numClades=None, useEffectiveMu=False, debug=False, verbose=False, plot=True, timing=True):
+def reconstructForAPopulationAsOnePeriod(pop, tStart=0, tEnd=len(TIMES_INTPL), groups=None, segmentedIntDxdx=None, clusterResult=None, mu=1e-10, percentMutsToIncludeInMajorClades=90, percentSignalsToIncludeInMajorClades=95, thFixed=TH_FIXED, thExtinct=0.01, thFixedWithinClade=0.9, thCollapse=0.9, numClades=None, useEffectiveMu=False, debug=False, verbose=False, plot=True, timing=True):
     if plot:
         print('<' + '-'*90 + '>')
     if groups is None and clusterResult is not None:
         reconstruction = clusterResult
     else:
         reconstruction = RC.CladeReconstruction(data[pop]['traj'][tStart:tEnd], mutantReads=np.array(data[pop]['counts_intpl'])[:, tStart:tEnd], readDepths=np.array(data[pop]['depths_intpl'])[:, tStart:tEnd], times=TIMES_INTPL[tStart:tEnd], mu=mu, hasInterpolation=True, segmentedIntDxdx=segmentedIntDxdx, groups=groups, useEffectiveMu=useEffectiveMu, debug=debug, verbose=verbose, plot=plot, timing=timing)
-        reconstruction.setParamsForClusterization(weightByBothVariance=False, weightBySmallerVariance=True, timing=timing)
+        reconstruction.setParamsForClusterization(weightByBothVariance=False, weightBySmallerVariance=False, weightBySmallerInterpolatedVariance=True, timing=timing)
         reconstruction.clusterMutations()
-    reconstruction.setParamsForReconstruction(thFixed=thFixed, thExtinct=thExtinct, thFixedWithinClade=thFixedWithinClade, numClades=numClades, percentMutsToIncludeInMajorClades=95, thLogProbPerTime=10, timing=timing)
+    reconstruction.setParamsForReconstruction(thFixed=thFixed, thExtinct=thExtinct, thFixedWithinClade=thFixedWithinClade, numClades=numClades, percentSignalsToIncludeInMajorClades=percentSignalsToIncludeInMajorClades, thLogProbPerTime=10, timing=timing)
+    reconstruction.reconstructCladeCompetition()
+    reconstruction.wrapResultsAsOnePeriod()
+    return reconstruction
+
+
+def reconstruct_for_a_period(pop, tStart, tEnd, thFixed=0.98, thExtinct=0.01, thFixedWithinClade=0.9, timing=False, debug=True, verbose=True, plot=True):
+    groups = load_clusterization_for_LTEE(pop, tStart=tStart, tEnd=tEnd)
+    segmentedIntDxdx = load_dxdx_for_LTEE(pop, tStart=tStart, tEnd=tEnd)
+    reconstruction = RC.CladeReconstruction(data[pop]['traj'][tStart:tEnd], mutantReads=np.array(data[pop]['counts_intpl'])[:, tStart:tEnd], 
+        readDepths=np.array(data[pop]['depths_intpl'])[:, tStart:tEnd], times=TIMES_INTPL[tStart:tEnd], mu=1e-10, hasInterpolation=True, 
+        segmentedIntDxdx=segmentedIntDxdx, groups=groups, useEffectiveMu=False, debug=debug, verbose=verbose, plot=plot, timing=timing)
+    reconstruction.setParamsForClusterization(weightByBothVariance=False, weightBySmallerVariance=False, 
+                                              weightBySmallerInterpolatedVariance=True, timing=timing)
+    reconstruction.clusterMutations()
+    reconstruction.setParamsForReconstruction(thFixed=thFixed, thExtinct=thExtinct, thFixedWithinClade=thFixedWithinClade, 
+                                              percentSignalsToIncludeInMajorClades=95, thLogProbPerTime=10, timing=timing)
     reconstruction.reconstructCladeCompetition()
     reconstruction.wrapResultsAsOnePeriod()
     return reconstruction
@@ -376,45 +580,338 @@ def reconstructForAPopulation(pop, tStart=0, tEnd=len(TIMES_INTPL), groups=None,
         reconstruction = clusterResult
     else:
         reconstruction = RC.CladeReconstruction(data[pop]['traj'][tStart:tEnd], mutantReads=np.array(data[pop]['counts_intpl'])[:, tStart:tEnd], readDepths=np.array(data[pop]['depths_intpl'])[:, tStart:tEnd], times=TIMES_INTPL[tStart:tEnd], mu=mu, hasInterpolation=True, segmentedIntDxdx=segmentedIntDxdx, groups=groups, useEffectiveMu=useEffectiveMu, debug=debug, verbose=verbose, plot=plot, timing=timing)
-        reconstruction.setParamsForClusterization(weightByBothVariance=False, weightBySmallerVariance=True, timing=timing)
+        reconstruction.setParamsForClusterization(weightByBothVariance=False, weightBySmallerVariance=False, weightBySmallerInterpolatedVariance=True, timing=timing)
         reconstruction.clusterMutations()
-    reconstruction.setParamsForReconstruction(thFixed=thFixed, thExtinct=thExtinct, thFixedWithinClade=thFixedWithinClade, numClades=numClades, percentMutsToIncludeInMajorClades=95, thLogProbPerTime=10, timing=timing)
+    reconstruction.setParamsForReconstruction(thFixed=thFixed, thExtinct=thExtinct, thFixedWithinClade=thFixedWithinClade, numClades=numClades, percentSignalsToIncludeInMajorClades=95, thLogProbPerTime=10, timing=timing)
     reconstruction.checkForSeparablePeriodAndReconstruct(cladeFixedTimes=cladeFixedTimes)
     return reconstruction
 
 
-def load_clusterization_for_LTEE(pop):
-    with open(CLUSTERIZATION_OUTPUT_DIR + f'/clusterization_output_pop={pop}.npz', 'rb') as fp:
-        return np.load(fp, allow_pickle=True)['groups']
+def load_clusterization_for_LTEE(pop, directory=CLUSTERIZATION_OUTPUT_DIR, tStart=None, tEnd=None, flattened=False):
+
+    if flattened:
+        postfix = '_flattened'
+    else:
+        postfix = ''
+
+    if tStart is None and tEnd is None:
+        with open(directory + f'/clusterization{postfix}_output_pop={pop}.npz', 'rb') as fp:
+            return np.load(fp, allow_pickle=True)['groups']
+    else:
+        if tStart is None:
+            tStart = 0
+        if tEnd is None:
+            tEnd = len(TIMES_INTPL)
+        with open(directory + f'/clusterization{postfix}_output_pop={pop}_tStart={tStart}_tEnd={tEnd}.npz', 'rb') as fp:
+            return np.load(fp, allow_pickle=True)['groups']
 
 
-def load_dxdx_for_LTEE(pop):
-    with open(CLUSTERIZATION_OUTPUT_DIR + f'/clusterization_output_pop={pop}.npz', 'rb') as fp:
-        return np.load(fp, allow_pickle=True)['segmentedIntDxdx']
+def load_dxdx_for_LTEE(pop, directory=CLUSTERIZATION_OUTPUT_DIR, tStart=None, tEnd=None, flattened=False):
+    if flattened:
+        postfix = '_flattened'
+    else:
+        postfix = ''
+    if tStart is None and tEnd is None:
+        with open(directory + f'/clusterization{postfix}_output_pop={pop}.npz', 'rb') as fp:
+            return np.load(fp, allow_pickle=True)['segmentedIntDxdx']
+    else:
+        if tStart is None:
+            tStart = 0
+        if tEnd is None:
+            tEnd = len(TIMES_INTPL)
+        with open(directory + f'/clusterization{postfix}_output_pop={pop}_tStart={tStart}_tEnd={tEnd}.npz', 'rb') as fp:
+            return np.load(fp, allow_pickle=True)['segmentedIntDxdx']
 
 
-def load_reconstruction_for_LTEE(pop, thFixed=0.98):
-    with open(RECONSTRUCTION_OUTPUT_DIR + f'/reconstruction_output_pop={pop}_thFixed={thFixed}.obj', 'rb') as fp:
+
+def load_reconstruction_for_LTEE(pop, thFixed=TH_FIXED, directory=RECONSTRUCTION_OUTPUT_DIR, flattened=False):
+    with open(directory + f'/reconstruction_output_pop={pop}_thFixed={thFixed}.obj', 'rb') as fp:
         return pickle.load(fp)
 
 
-def load_reconstructions_for_LTEE(populations, thFixed=0.98):
-    return {pop: load_reconstruction_for_LTEE(pop, thFixed=thFixed) for pop in populations}
+def load_reconstructions_for_LTEE(populations, thFixed=TH_FIXED, directory=RECONSTRUCTION_OUTPUT_DIR, flattened=False):
+    return {pop: load_reconstruction_for_LTEE(pop, thFixed=thFixed, directory=directory, flattened=flattened) for pop in populations}
 
 
-def reconstruct_for_LTEE_and_save(populations, thFixed=0.98, verbose=False):
+def reconstruct_for_LTEE_and_save(populations, thFixed=TH_FIXED, verbose=False, flattened=False):
+    if flattened:
+        postfix = '_flattened'
+    else:
+        postfix = ''
     for pop in populations:
-        clusterization = load_clusterization_for_LTEE(pop)
-        groups = clusterization['groups']
+        groups = load_clusterization_for_LTEE(pop, flattened=flattened)
+        segmentedIntDxdx = load_dxdx_for_LTEE(pop, flattened=flattened)
         if verbose:
-            print(f"Running for pop {pop}, {len(LH.data[pop]['sites_intpl'])} mutations...")
-        res = LH.reconstructForAPopulationAsOnePeriod(pop, groups=groups, thFixed=thFixed,
+            print(f"Running for pop {pop}, {len(data[pop]['sites_intpl'])} mutations...")
+        res = reconstructForAPopulationAsOnePeriod(pop, groups=groups, segmentedIntDxdx=segmentedIntDxdx, thFixed=thFixed,
             debug=False, verbose=False, plot=False, timing=False)
         if verbose:
             print('\tfinished. Saving...\n')
-        fp = open(RECONSTRUCTION_OUTPUT_DIR + f'/reconstruction_output_pop={pop}_thFixed={thFixed}.obj', 'wb')
+        fp = open(RECONSTRUCTION_OUTPUT_DIR + f'/reconstruction{postfix}_output_pop={pop}_thFixed={thFixed}.obj', 'wb')
         pickle.dump(res, fp, protocol=4)
         fp.close()
+
+
+def print_reconstcution_info(reconstruction):
+    pass
+
+
+############################################
+#
+# Lolipop
+#
+############################################
+
+def test_load_lolipop_input_LTEE(pop):
+    try:
+        _ = pd.read_table(LOLIPOP_INPUT_DIR + f'/LTEE_interpolated_pop={pop}.tsv')
+        return True
+    except:
+        return False
+
+
+def create_tables_for_lolipop(pop, overwrite=False):
+    if not overwrite and test_load_lolipop_input_LTEE(pop):
+        return
+    filename = f'LTEE_interpolated_pop={pop}.tsv'
+    lolipop_helper.saveTrajectoriesToTables(data[pop]['traj'], LOLIPOP_INPUT_DIR + f'/{filename}', sep='\t')
+    print(f'Created for pop={pop}')
+
+
+def generate_lolipop_command_for_LTEE_data(pop):
+    filename = f'LTEE_interpolated_pop={pop}.tsv'
+    output_directory = f'{LOLIPOP_OUTPUT_DIR_REL}/{pop}'
+    command = f"lolipop lineage --input {LOLIPOP_INPUT_DIR_REL}/{filename} --output {output_directory}"
+    return command
+
+
+def generate_lolipop_scipts_for_LTEE_data(populations_selected=populations, env='env_pySCA', partition='batch'):
+
+    job_prefix = 'lolipop_LTEE'
+    for pop in populations_selected:
+        jobname = f'{job_prefix}_pop={pop}'
+        command = generate_lolipop_command_for_LTEE_data(pop)
+        if pop in populations_nonmutator:
+            hours = 16
+            mem = 16
+        else:
+            hours = 336  # Two weeks
+            if pop == 'p6':
+                mem = 100
+            else:
+                mem = 32
+        SH.generate_shell_script(LOLIPOP_JOBS_DIR, jobname, command, mem=mem, hours=hours, env=env)
+
+    jobname = f'{job_prefix}_mkdir'
+    command = ''
+    for pop in populations_selected:
+        command += f'mkdir {LOLIPOP_OUTPUT_DIR_REL}/{pop}\n'
+    SH.generate_shell_script(LOLIPOP_JOBS_DIR, jobname, command, env=env)
+
+    jobname = f'{job_prefix}_submission'
+    command = ''
+    for pop in populations_selected:
+        if pop == 'p6':
+            command += f'sbatch -p highmem {job_prefix}_pop={pop}.sh\n'
+        else:
+            command += f'sbatch -p {partition} {job_prefix}_pop={pop}.sh\n'
+    SH.generate_shell_script(LOLIPOP_JOBS_DIR, jobname, command, env=env)
+
+
+
+############################################
+#
+# Evoracle
+#
+############################################
+
+
+def save_traj_for_evoracle(overwrite=False):
+    for pop in populations:
+        traj = data[pop]['traj']
+        file = f'{EVORACLE_LTEE_DIR}/{pop}/LTEE_{pop}_obsreads.csv'
+        DP.save_traj_for_evoracle(traj, file, times=TIMES_INTPL)
+
+
+def generate_evoracle_scripts(env='evoracle', save_geno_traj=True, partition='batch', overwrite=False):
+    
+    job_prefix = f'evoracle_LTEE'
+    jobnames = {pop: f'{job_prefix}_pop={pop}' for pop in populations}
+
+    for pop in populations:
+        command = ''
+        job_pars = {
+            '-o': f'{EVORACLE_LTEE_PARSED_OUTPUT_DIR_REL}/evoracle_parsed_output_LTEE_pop={pop}.npz',
+            '-i': f'LTEE_{pop}_obsreads.csv',
+            '-d': f'{EVORACLE_LTEE_DIR_REL}/{pop}',
+        }
+        if save_geno_traj:
+            job_pars['--save_geno_traj'] = ''
+        command += f'python {EVORACLE_SRC_DIR_REL}/evoracle_batch_job_real_data.py '
+        command += ' '.join([k + ' ' + str(v) for k, v in job_pars.items()])
+        command += '\n'
+        if pop in populations_nonmutator:
+            hours = 16
+        else:
+            hours = 336  # Two weeks
+        SH.generate_shell_script(JOB_DIR, jobnames[pop], command, hours=hours, env=env)
+
+    jobname = f'{job_prefix}_submission'
+    command = ''
+    for pop in populations:
+        if overwrite or not test_single_evoracle(pop):
+            command += f'sbatch -p {partition} {jobnames[pop]}.sh\n'
+    SH.generate_shell_script(JOB_DIR, jobname, command, env=env)
+
+
+def test_single_evoracle(pop):
+    try:
+        res = load_evoracle(pop)
+        for key in list(res.keys()):
+            res[key]
+        return True
+    except:
+        return False
+
+
+def load_evoracle(pop, directory=EVORACLE_LTEE_PARSED_OUTPUT_DIR):
+    file = f'{directory}/evoracle_parsed_output_LTEE_pop={pop}.npz'
+    return np.load(file, allow_pickle=True)
+
+
+
+############################################
+#
+# Compare running time
+#
+############################################
+
+
+def get_all_methods_run_time(print=True):
+
+    reconstruction_run_time = get_reconstruction_run_time()
+    run_time = {
+        'recovered': [],
+        'Lolipop': [],
+        'Evoracle': [],
+    }
+    for i, pop in enumerate(populations_sorted_by_num_alleles):
+        run_time['recovered'].append(get_clustering_run_time_for_a_pop(pop) + reconstruction_run_time[i])
+        run_time['Lolipop'].append(get_lolipop_run_time_for_a_pop(pop))
+        run_time['Evoracle'].append(get_evoracle_run_time_for_a_pop(pop))
+
+    if print:
+        print_all_methods_run_time(run_time)
+
+    return num_alleles_sorted, run_time
+
+
+def print_all_methods_run_time(run_time):
+
+    headers = [''] + populations_sorted_by_num_alleles
+    row_num_alleles = ['num_alleles'] + num_alleles_sorted
+    row_recovered = ['recovered (h)'] + ['%.2f' % _ for _ in run_time['recovered']]
+    row_Lolipop = ['Lolipop (h)'] + ['%.2f' % _ if _ != 'nan' else _ for _ in run_time['Lolipop']]
+    row_Evoracle = ['Evoracle (h)'] + ['%.2f' % _ if _ != 'nan' else _ for _ in run_time['Evoracle']]
+    rows = [row_num_alleles, row_recovered, row_Lolipop, row_Evoracle]
+
+    print(tabulate(rows, headers, tablefmt='plain', numalign="right"))
+
+
+def load_reconstruction_run_time(filename='reconstruction_run_time'):
+    # with open(f'{RECONSTRUCTION_OUTPUT_DIR}/reconstruction_run_time.pkl', 'rb') as f:
+    #     return pickle.load(f)
+    return np.load(f'{RECONSTRUCTION_OUTPUT_DIR}/{filename}.npy')
+
+
+def get_reconstruction_run_time(overwrite=False, save=True, filename='reconstruction_run_time'):
+    if not overwrite:
+        try:
+            run_time = load_reconstruction_run_time(filename=filename)
+            return run_time
+        except:
+            pass
+
+    run_time = []
+    for pop in populations_sorted_by_num_alleles:
+        start = timer()
+        groups = load_clusterization_for_LTEE(pop)
+        reconstruction = reconstructForAPopulationAsOnePeriod(pop, groups=groups, plot=False)
+        time_in_hour = (timer() - start) / 3600
+        run_time.append(time_in_hour)
+
+    if save:
+        np.save(f'{RECONSTRUCTION_OUTPUT_DIR}/{filename}.npy', run_time)
+
+    return np.array(run_time)
+
+
+def get_clustering_run_time():
+    pass
+
+
+def get_clustering_run_time_for_a_pop(pop):
+    return extract_run_time_from_stdout_file(get_clustering_job_stdout_file(pop))
+
+
+def get_lolipop_run_time_for_a_pop(pop):
+    return extract_run_time_from_stdout_file(get_lolipop_job_stdout_file(pop))
+
+
+def get_lolipop_process_for_a_pop(pop):
+    return extract_last_info_from_stdout_file(get_lolipop_job_stdout_file(pop))
+
+
+def get_evoracle_run_time_for_a_pop(pop):
+    return extract_run_time_from_stdout_file(get_evoracle_job_stdout_file(pop))
+
+
+def get_clustering_job_stdout_file(pop):
+    return f'{CLUSTER_JOBS_DIR}/clusterization_pop={pop}.stdout'
+
+
+def get_lolipop_job_stdout_file(pop):
+    return f'{LOLIPOP_JOBS_DIR}/lolipop_LTEE_pop={pop}.stdout'
+
+
+def get_evoracle_job_stdout_file(pop):
+    return f'{JOB_DIR}/evoracle_LTEE_pop={pop}.stdout'
+
+
+def extract_run_time_from_stdout_file(file, running_marker='nan'):
+    with open(file, 'r') as fp:
+        lines = fp.readlines()
+        if len(lines) <= 2:
+            return running_marker
+        try:
+            start_datetime = parse_date_from_stdout_line(lines[1])
+            end_datetime = parse_date_from_stdout_line(lines[-1])
+            run_time = get_hour_between_dates(start_datetime, end_datetime)
+            return run_time
+        except:
+            return running_marker
+
+
+def extract_last_info_from_stdout_file(file, num_last_chars=200):
+    with open(file, 'r') as fp:
+        lines = fp.readlines()
+        info = ''
+        for i in range(len(lines) - 1, -1, -1):
+            info = lines[i][-num_last_chars:] + info
+            if len(info) >= num_last_chars:
+                break
+        return info
+
+
+def parse_date_from_stdout_line(line):
+    # Sun Jan 22 20:09:42 PST 2023
+    # print(line)
+    return datetime.strptime(line.strip(), '%a %b %d %H:%M:%S %Z %Y')
+
+
+def get_hour_between_dates(start_datetime, end_datetime):
+    delta = end_datetime - start_datetime
+    return delta.days * 24 + delta.seconds / 3600
 
 
 ############################################

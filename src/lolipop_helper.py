@@ -29,16 +29,6 @@ LOLIPOP_OUTPUT_DIR = './data/lolipop/output'
 LOLIPOP_OUTPUT_DIR_REL = '../output'
 LOLIPOP_PARSED_OUTPUT_DIR = './data/lolipop/parsed_output'
 
-def generate_lolipop_command_for_simulated_data(n, meanS=0.03, stdS=0.01, minS=0.01, maxS=0.04, uniform=False, mu=2e-4, threshold=0.05):
-    if uniform:
-        filename = f'simulation_traj_min={minS}_max={maxS}_mu={mu}_th={threshold}_n={n}.tsv'
-        output_directory = f'{LOLIPOP_OUTPUT_DIR_REL}/n={n}_uniform'
-    else:
-        filename = f'simulation_traj_mean={meanS}_std={stdS}_mu={mu}_th={threshold}_n={n}.tsv'
-        output_directory = f'{LOLIPOP_OUTPUT_DIR_REL}/n={n}'
-    command = f"lolipop lineage --input {LOLIPOP_INPUT_DIR_REL}/{filename} --output {output_directory}"
-    return command
-
 
 def loadSimulation(n, simulation_directory=SIMULATION_DIR, meanS=0.03, stdS=0.01, minS=0.01, maxS=0.04, uniform=False, mu=2e-4, threshold=0.05):
     if uniform:
@@ -435,3 +425,4 @@ def inferForSimulations(num_trials=40, meanS=0.03, stdS=0.01, minS=0.01, maxS=0.
         fitness_all.append(fitness)
         intCovError_all.append(intCovError)
     return intCov_all, selection_all, fitness_all, intCovError_all
+
