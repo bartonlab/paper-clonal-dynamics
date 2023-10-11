@@ -1,6 +1,7 @@
 # Local files
 .ipynb_checkpoints
 __pycache__
+drafts
 figures_deprecated.ipynb
 figures_additional.ipynb
 recombination.ipynb
