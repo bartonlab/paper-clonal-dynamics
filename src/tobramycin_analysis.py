@@ -61,7 +61,10 @@ PA_ALLELE_FILES = {
 
 TIMES_AB = (np.array([0, 1, 3, 4, 6, 7, 9, 10, 12]) * 6.64).astype(int)
 TIMES_PA = (np.array([0, 3, 4, 6, 7, 9, 10, 12]) * 6.64).astype(int)
-METHODS = ['recovered', 'Lolipop', 'Evoracle', 'est_cov', 'SL']
+OUR_METHOD_NAME = 'dxdx'  # 'recovered'
+TRUE_COV_NAME = 'True'  # 'true_cov'
+EST_METHOD_NAME = 'LB'  # 'est_cov'
+METHODS = [OUR_METHOD_NAME, 'Lolipop', 'Evoracle', EST_METHOD_NAME]  # [OUR_METHOD_NAME, 'Lolipop', 'Evoracle', EST_METHOD_NAME, 'SL']  # ['recovered', 'Lolipop', 'Evoracle', 'est_cov', 'SL']
 MU = 1e-6
 REG = 4  # Adjustable through set_reg(reg)
 
@@ -203,18 +206,18 @@ def parse_muller_files(prefix='pa', output_dir=LOLIPOP_OUTPUT_DIR):
     return files
 
 
-def get_reconstruction_from_traj(traj, times, mu=MU, defaultReg=REG, meanReadDepth=100, thFixed=0.98, thLogProbPerTime=10, thFreqUnconnected=1, debug=False, verbose=False, plot=False, evaluateReconstruction=True, evaluateInference=False):
+def get_reconstruction_from_traj(traj, times, mu=MU, defaultReg=REG, meanReadDepth=100, thFixed=0.98, thLogProbPerTime=10, thFreqUnconnected=1, debug=False, verbose=False, plot=False, evaluateReconstruction=True, evaluateInference=False, assumeCooperationAmongSharedMuts=False):
     rec = RC.CladeReconstruction(traj, times=times, meanReadDepth=meanReadDepth, debug=debug, verbose=verbose, plot=plot, mu=mu)
     rec.setParamsForClusterization(weightByBothVariance=False, weightBySmallerVariance=False, weightBySmallerInterpolatedVariance=True)
     rec.clusterMutations()
     rec.setParamsForReconstruction(thFixed=thFixed, thExtinct=0, numClades=None, thLogProbPerTime=thLogProbPerTime, thFreqUnconnected=thFreqUnconnected)
     rec.checkForSeparablePeriodAndReconstruct()
-    rec.setParamsForEvaluation(defaultReg=defaultReg)
+    rec.setParamsForEvaluation(defaultReg=defaultReg, assumeCooperationAmongSharedMuts=assumeCooperationAmongSharedMuts)
     evaluation, inference = rec.evaluate(evaluateReconstruction=evaluateReconstruction, evaluateInference=evaluateInference)
     return rec, evaluation, inference
 
 
-def parse_reconstructions():
+def parse_reconstructions(assumeCooperationAmongSharedMuts=False):
     reconstructions = init_a_dic(placeholder=True)
     evaluations = init_a_dic(placeholder=True)
     inferences = init_a_dic(placeholder=True)
@@ -222,7 +225,7 @@ def parse_reconstructions():
     for medium in MEDIA:
         for rpl in range(NUM_REPLICATES):
             traj, times = traj_pa[medium][rpl][:2]
-            reconstructions[medium][rpl], evaluations[medium][rpl], inferences[medium][rpl] = get_reconstruction_from_traj(traj, times, mu=MU, evaluateReconstruction=True, evaluateInference=True)
+            reconstructions[medium][rpl], evaluations[medium][rpl], inferences[medium][rpl] = get_reconstruction_from_traj(traj, times, mu=MU, evaluateReconstruction=True, evaluateInference=True, assumeCooperationAmongSharedMuts=assumeCooperationAmongSharedMuts)
 
     return reconstructions, evaluations, inferences
 

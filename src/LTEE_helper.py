@@ -24,6 +24,8 @@ import LTEE
 import lolipop_helper
 import data_parser as DP
 
+OUR_METHOD_NAME = 'dxdx'
+
 DATA_DIR = './data'
 JOB_DIR = './jobs'
 
@@ -623,14 +625,14 @@ def load_dxdx_for_LTEE(pop, directory=CLUSTERIZATION_OUTPUT_DIR, tStart=None, tE
             return np.load(fp, allow_pickle=True)['segmentedIntDxdx']
 
 
-
-def load_reconstruction_for_LTEE(pop, thFixed=TH_FIXED, directory=RECONSTRUCTION_OUTPUT_DIR, flattened=False):
-    with open(directory + f'/reconstruction_output_pop={pop}_thFixed={thFixed}.obj', 'rb') as fp:
+def load_reconstruction_for_LTEE(pop, thFixed=TH_FIXED, directory=RECONSTRUCTION_OUTPUT_DIR, flattened=False, with_cov=False):
+    postfix = "_with_cov" if with_cov else ""
+    with open(directory + f'/reconstruction_output_pop={pop}_thFixed={thFixed}{postfix}.obj', 'rb') as fp:
         return pickle.load(fp)
 
 
-def load_reconstructions_for_LTEE(populations, thFixed=TH_FIXED, directory=RECONSTRUCTION_OUTPUT_DIR, flattened=False):
-    return {pop: load_reconstruction_for_LTEE(pop, thFixed=thFixed, directory=directory, flattened=flattened) for pop in populations}
+def load_reconstructions_for_LTEE(populations, thFixed=TH_FIXED, directory=RECONSTRUCTION_OUTPUT_DIR, flattened=False, with_cov=False):
+    return {pop: load_reconstruction_for_LTEE(pop, thFixed=thFixed, directory=directory, flattened=flattened, with_cov=with_cov) for pop in populations}
 
 
 def reconstruct_for_LTEE_and_save(populations, thFixed=TH_FIXED, verbose=False, flattened=False):
@@ -649,6 +651,24 @@ def reconstruct_for_LTEE_and_save(populations, thFixed=TH_FIXED, verbose=False, 
             print('\tfinished. Saving...\n')
         fp = open(RECONSTRUCTION_OUTPUT_DIR + f'/reconstruction{postfix}_output_pop={pop}_thFixed={thFixed}.obj', 'wb')
         pickle.dump(res, fp, protocol=4)
+        fp.close()
+
+
+def evaluate_for_LTEE_and_save(populations, reconstructions, thFixed=TH_FIXED, verbose=False, flattened=False):
+    if flattened:
+        postfix = '_flattened'
+    else:
+        postfix = ''
+    for pop in populations:
+        rec = reconstructions[pop]
+        if verbose:
+            print(f"Running for pop {pop}, {len(data[pop]['sites_intpl'])} mutations...")
+        rec.setParamsForEvaluation()
+        rec.evaluate(evaluateReconstruction=False, evaluateInference=False)
+        if verbose:
+            print('\tfinished. Saving...\n')
+        fp = open(RECONSTRUCTION_OUTPUT_DIR + f'/reconstruction{postfix}_output_pop={pop}_thFixed={thFixed}_with_cov.obj', 'wb')
+        pickle.dump(rec, fp, protocol=4)
         fp.close()
 
 
@@ -787,20 +807,20 @@ def load_evoracle(pop, directory=EVORACLE_LTEE_PARSED_OUTPUT_DIR):
 ############################################
 
 
-def get_all_methods_run_time(print=True):
+def get_all_methods_run_time(print_info=True):
 
     reconstruction_run_time = get_reconstruction_run_time()
     run_time = {
-        'recovered': [],
+        OUR_METHOD_NAME: [],
         'Lolipop': [],
         'Evoracle': [],
     }
     for i, pop in enumerate(populations_sorted_by_num_alleles):
-        run_time['recovered'].append(get_clustering_run_time_for_a_pop(pop) + reconstruction_run_time[i])
+        run_time[OUR_METHOD_NAME].append(get_clustering_run_time_for_a_pop(pop) + reconstruction_run_time[i])
         run_time['Lolipop'].append(get_lolipop_run_time_for_a_pop(pop))
         run_time['Evoracle'].append(get_evoracle_run_time_for_a_pop(pop))
 
-    if print:
+    if print_info:
         print_all_methods_run_time(run_time)
 
     return num_alleles_sorted, run_time
@@ -810,7 +830,7 @@ def print_all_methods_run_time(run_time):
 
     headers = [''] + populations_sorted_by_num_alleles
     row_num_alleles = ['num_alleles'] + num_alleles_sorted
-    row_recovered = ['recovered (h)'] + ['%.2f' % _ for _ in run_time['recovered']]
+    row_recovered = ['recovered (h)'] + ['%.2f' % _ for _ in run_time[OUR_METHOD_NAME]]
     row_Lolipop = ['Lolipop (h)'] + ['%.2f' % _ if _ != 'nan' else _ for _ in run_time['Lolipop']]
     row_Evoracle = ['Evoracle (h)'] + ['%.2f' % _ if _ != 'nan' else _ for _ in run_time['Evoracle']]
     rows = [row_num_alleles, row_recovered, row_Lolipop, row_Evoracle]
@@ -887,7 +907,7 @@ def extract_run_time_from_stdout_file(file, running_marker='nan'):
             start_datetime = parse_date_from_stdout_line(lines[1])
             end_datetime = parse_date_from_stdout_line(lines[-1])
             run_time = get_hour_between_dates(start_datetime, end_datetime)
-            return run_time
+            return float(run_time)
         except:
             return running_marker
 
@@ -906,7 +926,8 @@ def extract_last_info_from_stdout_file(file, num_last_chars=200):
 def parse_date_from_stdout_line(line):
     # Sun Jan 22 20:09:42 PST 2023
     # print(line)
-    return datetime.strptime(line.strip(), '%a %b %d %H:%M:%S %Z %Y')
+    # return datetime.strptime(line.strip(), '%a %b %d %H:%M:%S %Z %Y')
+    return datetime.strptime(line.strip().replace('PST', ''), '%a %b %d %H:%M:%S %Y')
 
 
 def get_hour_between_dates(start_datetime, end_datetime):

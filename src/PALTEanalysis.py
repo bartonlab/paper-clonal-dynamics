@@ -72,7 +72,10 @@ EVORACLE_PALTE_PARSED_OUTPUT_DIR_REL = f'{DATA_DIR_REL}/evoracle/PALTE_parsed_ou
 # Constants
 POPULATIONS = ['B1', 'B2', 'B3', 'P1', 'P2', 'P3']
 MEASURED_POPULATIONS = ['WT'] + POPULATIONS
-METHODS = ['recovered', 'Lolipop', 'est_cov', 'SL']
+OUR_METHOD_NAME = 'dxdx'  # 'recovered'
+TRUE_COV_NAME = 'True'  # 'true_cov'
+EST_METHOD_NAME = 'LB'  # 'est_cov'
+METHODS = [OUR_METHOD_NAME, 'Lolipop', 'Evoracle', EST_METHOD_NAME]  # [OUR_METHOD_NAME, 'Lolipop', 'Evoracle', EST_METHOD_NAME, 'SL']  # ['recovered', 'Lolipop', 'est_cov', 'SL']
 TIMES = np.array([0, 17, 25, 44, 66, 75, 90]) * 600 // 90
 MU = 1e-6
 REG = 4  # Adjustable through set_reg(reg)
@@ -86,7 +89,14 @@ except:
 def load_df(data_dir='./data'):
     global df_traj, df_fitness
     df_traj = pd.read_csv(f'{data_dir}/{PALTE_TRAJ_FILE}')
-    df_fitness = pd.read_excel(f'{data_dir}/{FITNESS_FILE}', engine='openpyxl', sheet_name=SHEETNAMES)
+    try:
+        df_fitness = pd.read_excel(f'{data_dir}/{FITNESS_FILE}', engine='openpyxl', sheet_name=SHEETNAMES)
+    except:
+        try:
+            with pd.ExcelFile(f'{data_dir}/{FITNESS_FILE}', engine="openpyxl") as excel:
+                df_fitness = pd.read_excel(excel)
+        except:
+            df_fitness = pd.read_excel(f'{data_dir}/{FITNESS_FILE}', sheet_name=SHEETNAMES)
 
 
 ############################################
@@ -170,19 +180,19 @@ def parse_muller_files(populations, output_dir=LOLIPOP_OUTPUT_DIR):
     return files
 
 
-def get_reconstruction_from_traj(traj, times, mu=MU, defaultReg=REG, meanReadDepth=100, thFixed=0.98, thLogProbPerTime=10, thFreqUnconnected=1, debug=False, verbose=False, plot=False, evaluateReconstruction=True, evaluateInference=False):
+def get_reconstruction_from_traj(traj, times, mu=MU, defaultReg=REG, meanReadDepth=100, thFixed=0.98, thLogProbPerTime=10, thFreqUnconnected=1, debug=False, verbose=False, plot=False, evaluateReconstruction=True, evaluateInference=False, assumeCooperationAmongSharedMuts=False):
     print(defaultReg)
     rec = RC.CladeReconstruction(traj, times=times, meanReadDepth=meanReadDepth, debug=debug, verbose=verbose, plot=plot, mu=mu, useEffectiveMu=False)
     rec.setParamsForClusterization(weightByBothVariance=False, weightBySmallerVariance=True)
     rec.clusterMutations()
     rec.setParamsForReconstruction(thFixed=thFixed, thExtinct=0, numClades=None, thLogProbPerTime=thLogProbPerTime, thFreqUnconnected=thFreqUnconnected)
     rec.checkForSeparablePeriodAndReconstruct()
-    rec.setParamsForEvaluation(defaultReg=defaultReg)
+    rec.setParamsForEvaluation(defaultReg=defaultReg, assumeCooperationAmongSharedMuts=assumeCooperationAmongSharedMuts)
     evaluation, inference = rec.evaluate(evaluateReconstruction=evaluateReconstruction, evaluateInference=evaluateInference)
     return rec, evaluation, inference
 
 
-def parse_reconstructions(reg=REG):
+def parse_reconstructions(reg=REG, assumeCooperationAmongSharedMuts=False):
     reconstructions = {pop: None for pop in POPULATIONS}
     evaluations = {pop: None for pop in POPULATIONS}
     inferences = {pop: None for pop in POPULATIONS}
@@ -194,7 +204,7 @@ def parse_reconstructions(reg=REG):
     for pop in POPULATIONS:
         traj = parse_interpolated_traj(pop, df_traj)
         (reconstructions[pop], evaluations[pop],
-         inferences[pop]) = get_reconstruction_from_traj(traj, TIMES, defaultReg=reg, mu=MU, evaluateReconstruction=True, evaluateInference=True)
+         inferences[pop]) = get_reconstruction_from_traj(traj, TIMES, defaultReg=reg, mu=MU, evaluateReconstruction=True, evaluateInference=True, assumeCooperationAmongSharedMuts=assumeCooperationAmongSharedMuts)
 
     return reconstructions, evaluations, inferences
 
@@ -211,6 +221,21 @@ def parse_Lolipop_results(muForInference=MU, regularization=REG, mus=None, popul
         selection_lolipop[pop] = selection
         fitness_lolipop[pop] = fitness
     return intCov_lolipop, selection_lolipop, fitness_lolipop
+
+
+def parse_evoracle_results(muForInference=MU, regularization=REG, mus=None, populations=POPULATIONS):
+    intCov_evoracle, selection_evoracle, fitness_evoracle = {pop: None for pop in populations}, {pop: None for pop in populations}, {pop: None for pop in populations}
+    for pop in populations:
+        res = load_evoracle(pop)
+        traj = res['traj']
+        intCov = res['int_cov']
+        selection = res['selection']
+        fitness = lolipop_helper.computeFitness(traj, selection)
+
+        intCov_evoracle[pop] = intCov
+        selection_evoracle[pop] = selection
+        fitness_evoracle[pop] = fitness
+    return intCov_evoracle, selection_evoracle, fitness_evoracle
 
 
 def parse_all_measured_fitness(numRows=6, th_large_fitness=9):
@@ -247,6 +272,13 @@ def parse_inferred_fitness_for_Lolipop(fitness_lolipop, populations):
     return inferred_fitness
 
 
+def parse_inferred_fitness_for_evoracle(fitness_evoracle, populations):
+    inferred_fitness = {'WT': 1}
+    for pop in populations:
+        inferred_fitness[pop] = fitness_evoracle[pop][-1]
+    return inferred_fitness
+
+
 def parse_inferred_fitness_for_a_method(inferences, method, populations, fitness_index=3):
     inferred_fitness = {'WT': 1}
     for pop in populations:
@@ -254,7 +286,7 @@ def parse_inferred_fitness_for_a_method(inferences, method, populations, fitness
     return inferred_fitness
 
 
-def parse_inferred_fitness_list(inferences, fitness_lolipop):
+def parse_inferred_fitness_list(inferences, fitness_lolipop, fitness_evoracle):
 
     # reconstructions, evaluations, inferences = parse_reconstructions()
     # intCov_lolipop, selection_lolipop, fitness_lolipop = parse_Lolipop_results()
@@ -263,6 +295,8 @@ def parse_inferred_fitness_list(inferences, fitness_lolipop):
     for method in METHODS:
         if method == 'Lolipop':
             inferred_fitness_list.append(parse_inferred_fitness_for_Lolipop(fitness_lolipop, POPULATIONS))
+        elif method == 'Evoracle':
+            inferred_fitness_list.append(parse_inferred_fitness_for_evoracle(fitness_evoracle, POPULATIONS))
         else:
             inferred_fitness_list.append(parse_inferred_fitness_for_a_method(inferences, method, POPULATIONS))
     return inferred_fitness_list

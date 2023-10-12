@@ -20,6 +20,10 @@ import MPL
 EPSILON = 1e-10
 PRECISION = 1e-16
 
+EST_METHOD_NAME = 'LB'  # 'est_cov'
+OUR_METHOD_NAME = 'dxdx'  # 'recovered'
+TRUE_COV_NAME = 'True'  # 'true_cov'
+
 class bcolors:
     BLACK = '\033[0m'
     HEADER = '\033[95m'
@@ -177,6 +181,24 @@ def segmentMatrix(matrix, groups):
             seg[i, j] = matrix[s1, s2]
             seg[j, i] = seg[i, j]
     return seg, groups_sorted
+
+
+def undoSegmentMatrix(matrix, groups):
+    i = 0
+    i2s = {}
+    for group in groups:
+        for site in group:
+            i2s[i] = site
+            i += 1
+    original = np.zeros_like(matrix)
+    for i in range(len(matrix)):
+        s1 = i2s[i]
+        original[s1, s1] = matrix[i, i]
+        for j in range(i + 1, len(matrix)):
+            s2 = i2s[j]
+            original[s1, s2] = matrix[i, j]
+            original[s2, s1] = original[s1, s2]
+    return original
 
 
 def compute_next_x(x, s):
@@ -444,7 +466,7 @@ class CladeReconstruction:
         self.getExtinctionTimes()
 
 
-    def setParamsForEvaluation(self, testMultipleMu=False, debug=None, plot=None, intCov=None, defaultReg=None, selection=None, fitness=None, fitness_times=None, flattenBlipsAfterFixation=False, collapseSimilarTrajectories=False, thCollapse=1, timing=None):
+    def setParamsForEvaluation(self, testMultipleMu=False, debug=None, plot=None, intCov=None, defaultReg=None, selection=None, fitness=None, fitness_times=None, flattenBlipsAfterFixation=False, collapseSimilarTrajectories=False, thCollapse=1, assumeCooperationAmongSharedMuts=False, timing=None):
         if debug is not None:
             self.debug = debug
         if plot is not None:
@@ -464,6 +486,8 @@ class CladeReconstruction:
         self.flattenBlipsAfterFixation = flattenBlipsAfterFixation
         self.collapseSimilarTrajectories = collapseSimilarTrajectories
         self.thCollapse = thCollapse
+        # When computing covariance
+        self.assumeCooperationAmongSharedMuts = assumeCooperationAmongSharedMuts
         # To be constructed
         self.recoveredTraj = None
         self.processedTraj = None
@@ -757,6 +781,7 @@ class CladeReconstruction:
                     segmentedIntDxdx = startEndToDxdx[key]
                 else:
                     groups = None
+                    segmentedIntDxdx = None
                 self.periodBoundaries.append((tStart, tEnd))
                 self.periods.append(self.reconstructForPeriod(tStart, tEnd, groups=groups, segmentedIntDxdx=segmentedIntDxdx))
             tStart, tEnd = cladeFixedTimes[-1], self.T
@@ -766,6 +791,7 @@ class CladeReconstruction:
                 segmentedIntDxdx = startEndToDxdx[key]
             else:
                 groups = None
+                segmentedIntDxdx = None
             self.periodBoundaries.append((tStart, tEnd))
             self.periods.append(self.reconstructForPeriod(tStart, tEnd, groups=groups, segmentedIntDxdx=segmentedIntDxdx))
 
@@ -1942,8 +1968,8 @@ class CladeReconstruction:
                 'reg_recover': 1,
                 'true': (self.traj, self.intCov, self.selection, self.fitness),
                 'SL': (self.traj, intVar, selection_SL, fitness_SL),
-                'est_cov': (self.processedTraj, estCov, selectionByEstCov, fitnessByEstCov, fitnessByEstCovAndProcessedTraj),
-                'recovered': (self.processedTraj, self.recoveredIntCov, self.recoveredSelection, self.recoveredFitness, self.recoveredFitnessByProcessedTraj),
+                EST_METHOD_NAME: (self.processedTraj, estCov, selectionByEstCov, fitnessByEstCov, fitnessByEstCovAndProcessedTraj),
+                OUR_METHOD_NAME: (self.processedTraj, self.recoveredIntCov, self.recoveredSelection, self.recoveredFitness, self.recoveredFitnessByProcessedTraj),
                 'all_fitness': {k: v[2] for k, v in res.items()},
                 'all_selection': {k: v[1] for k, v in res.items()},
             }
@@ -1980,8 +2006,8 @@ class CladeReconstruction:
             'reg_recover': reg_recover,
             'true': (self.traj, self.fitness),
             'SL': (self.traj, fitness_SL),
-            'est_cov': (self.processedTraj, estCov, selectionByEstCov, fitnessByEstCov, fitnessByEstCovAndProcessedTraj),
-            'recovered': (self.processedTraj, self.recoveredFitness, self.recoveredFitnessByProcessedTraj),
+            EST_METHOD_NAME: (self.processedTraj, estCov, selectionByEstCov, fitnessByEstCov, fitnessByEstCovAndProcessedTraj),
+            OUR_METHOD_NAME: (self.processedTraj, self.recoveredFitness, self.recoveredFitnessByProcessedTraj),
             'all_fitness': {k: v[2] for k, v in res.items()},
             'all_selection': {k: v[1] for k, v in res.items()},
         }
@@ -2052,9 +2078,9 @@ class CladeReconstruction:
             'window_est':window_est,
             'true': (self.traj, self.intCov, self.selection, self.fitness),
             'SL': (self.traj, intVar, selection_SL, fitness_SL),
-            'true_cov': (self.traj, self.intCov, self.selectionByTrueCov, self.fitnessByTrueCov),
-            'recovered': (self.processedTraj, self.recoveredIntCov, self.recoveredSelection, self.recoveredFitness),
-            'est_cov': (self.traj, self.estCov, self.selectionByEstCov, self.fitnessByEstCov),
+            TRUE_COV_NAME: (self.traj, self.intCov, self.selectionByTrueCov, self.fitnessByTrueCov),
+            OUR_METHOD_NAME: (self.processedTraj, self.recoveredIntCov, self.recoveredSelection, self.recoveredFitness),
+            EST_METHOD_NAME: (self.traj, self.estCov, self.selectionByEstCov, self.fitnessByEstCov),
             'all_fitness': {k: v[5] for k, v in res.items()},
         }
         if self.timing:
@@ -2072,7 +2098,7 @@ class CladeReconstruction:
             'reg': reg,
             'true': (self.traj, self.intCov, self.selection, self.fitness),
             'SL': (self.traj, intVar, selection_SL, fitness_SL),
-            'true_cov': (self.traj, self.intCov, self.selectionByTrueCov, self.fitnessByTrueCov),
+            TRUE_COV_NAME: (self.traj, self.intCov, self.selectionByTrueCov, self.fitnessByTrueCov),
         }
         return self.summary
 
@@ -2327,7 +2353,11 @@ class CladeReconstruction:
         x = np.zeros((T, L, L), dtype=float)
         for i in range(L):
             for j in range(i + 1, L):
-                if i in self.otherMuts or j in self.otherMuts:
+                if i in self.otherMuts and j in self.otherMuts and self.assumeCooperationAmongSharedMuts:
+                    # Correlated
+                    for t in range(T):
+                        x[t, i, j] = min(traj[t, i], traj[t, j])
+                elif i in self.otherMuts or j in self.otherMuts:
                     # Not correlated
                     for t in range(T):
                         x[t, i, j] = traj[t, i] * traj[t, j]

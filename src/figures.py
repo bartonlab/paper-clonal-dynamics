@@ -39,8 +39,11 @@ import estimate_covariance as EC
 
 # METHODS = ['SL', 'true_cov', 'recovered', 'est_cov', 'Lolipop']
 # METHODS = ['true_cov', 'recovered', 'Lolipop', 'Evoracle', 'haploSep', 'est_cov', 'SL']
-METHODS = ['true_cov', 'recovered', 'Lolipop', 'Evoracle', 'est_cov', 'SL']
-METHODS_COMPARE_RUN_TIME = ['recovered', 'Lolipop', 'Evoracle']
+OUR_METHOD_NAME = 'dxdx'  # 'recovered'
+TRUE_COV_NAME = 'True'  # 'true_cov'
+EST_METHOD_NAME = 'LB'  # 'est_cov'
+METHODS = [TRUE_COV_NAME, OUR_METHOD_NAME, 'Lolipop', 'Evoracle', EST_METHOD_NAME, 'SL']
+METHODS_COMPARE_RUN_TIME = [OUR_METHOD_NAME, 'Lolipop', 'Evoracle']
 MARKERS_METHODS_COMPARE_RUN_TIME = ['o', '^', 'v']
 
 # Standard color scheme
@@ -232,6 +235,21 @@ DEF_TICKPROPS_TOP = {
     'labelsize' : SIZETICK,
     'bottom'    : False,
     'left'      : True,
+    'top'       : True,
+    'right'     : False,
+}
+
+DEF_TICKPROPS_COV_TOP = {
+    'length'    : 0,
+    'width'     : AXWIDTH/2,
+    'pad'       : TICKPAD,
+    'axis'      : 'both',
+    'which'     : 'both',
+    'direction' : 'out',
+    'colors'    : BKCOLOR,
+    'labelsize' : SIZETICK,
+    'bottom'    : False,
+    'left'      : False,
     'top'       : True,
     'right'     : False,
 }
@@ -1479,10 +1497,10 @@ def plot_figure_reconstruction_example(simulation, reconstruction, nRow=3, nCol=
     plt.plot([0, 0.0001], [-1, -1], linewidth=SIZELINE, linestyle='dashed', color=GREY_COLOR_RGB, alpha=alpha, label='Haplotype')
     plt.plot([0, 0.0001], [-1, -1], linewidth=SIZELINE * 2, color=GREY_COLOR_RGB, alpha=alpha, label='Clade')
     if annotate_together:
-        ax.legend(fontsize=SIZELEGEND * 0.7, loc='center left', bbox_to_anchor=(-0.01, 0.45), frameon=False)
+        ax.legend(fontsize=SIZELEGEND, loc='center left', bbox_to_anchor=(-0.01, -0.6), frameon=False)
         plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[2], transform=ax.transAxes, **DEF_SUBLABELPROPS)
     else:
-        ax.legend(fontsize=SIZELEGEND * 0.7, loc='center left', bbox_to_anchor=(-0.01, 0.45), frameon=False)
+        ax.legend(fontsize=SIZELEGEND, loc='center left', bbox_to_anchor=(-0.01, -0.6), frameon=False)
         plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[1], transform=ax.transAxes, **DEF_SUBLABELPROPS)
 
     plotted_positions = {}
@@ -1561,7 +1579,7 @@ def plot_figure_reconstruction_example(simulation, reconstruction, nRow=3, nCol=
     set_ticks_labels_axes(xlim=xlim, ylim=ylim_for_stackplot, ylabel=ylabels[1 if annotate_together else 2], xlabel=xlabel if not annotate_together else None, xticks=[] if annotate_together else None, xticklabels=[] if annotate_together else None)
 
     if plot_single_column:
-        plt.subplots_adjust(0.17, 0.13, 0.92, 0.95)
+        plt.subplots_adjust(0.17, 0.17, 0.92, 0.95)
     else:
         plt.subplots_adjust(0.055, 0.06, 0.93, 0.99)
     plt.show()
@@ -1616,9 +1634,9 @@ def plot_figure_performance_example(simulation, reconstruction, evaluation, nRow
 
     inference = evaluation[1]
     selection_true = inference['true'][2]
-    selection_recovered = inference['recovered'][2]
-    selection_trueCov = inference['true_cov'][2]
-    selection_estCov = inference['est_cov'][2]
+    selection_recovered = inference[OUR_METHOD_NAME][2]
+    selection_trueCov = inference[TRUE_COV_NAME][2]
+    selection_estCov = inference[EST_METHOD_NAME][2]
     selection_SL = inference['SL'][2]
     selection_list = [selection_trueCov, selection_recovered, selection_SL]
     xlabel = 'True selections'
@@ -1746,10 +1764,10 @@ def plot_figure_performance_Evoracle_example(simulation, reconstruction, evaluat
 
     inference = evaluation[1]
     selection_true = inference['true'][2]
-    selection_trueCov = inference['true_cov'][2]
+    selection_trueCov = inference[TRUE_COV_NAME][2]
     selection_evoracle = results_evoracle['selection']
-    # selection_recovered = inference['recovered'][2]
-    # selection_estCov = inference['est_cov'][2]
+    # selection_recovered = inference[OUR_METHOD_NAME][2]
+    # selection_estCov = inference[EST_METHOD_NAME][2]
     selection_SL = inference['SL'][2]
     selection_list = [selection_trueCov, selection_evoracle, selection_SL]
 
@@ -1936,21 +1954,26 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
         na_text_offset = -0.46
 
         if row == 1:
-            scatter_indices = np.array([_ for _ in range(len(ys)) if method_list[_] not in ['true_cov', 'SL']])  # Spearmanr of covariances does not apply to the SL/MPL method
+            scatter_indices = np.array([_ for _ in range(len(ys)) if method_list[_] not in [TRUE_COV_NAME, 'SL']])  # Spearmanr of covariances does not apply to the SL/MPL method
 
-            na_xy_list = [(0, 0.15), (len(method_list) - 1, 0.15)]
+            na_xy_list = [(0, 0.15)]
+            if 'SL' in method_list:
+                na_xy_list.append((len(method_list) - 1, 0.15))
             plt.sca(ax)
             for na_x, na_y in na_xy_list:
                 plt.plot([na_x, na_x], [0, na_y - 0.05], linewidth=SIZELINE, color=BKCOLOR)
                 plt.text(na_x + na_text_offset, na_y, 'NA', fontsize=na_fontsize)
 
             y_avgs[0] = None
-            y_avgs[-1] = None
+            if 'SL' in method_list:
+                y_avgs[-1] = None
 
         elif row == 0:
-            scatter_indices = np.array([_ for _ in range(len(ys)) if method_list[_] not in ['true_cov', 'SL']])
+            scatter_indices = np.array([_ for _ in range(len(ys)) if method_list[_] not in [TRUE_COV_NAME, 'SL']])
 
-            na_xy_list = [(0, 0.6), (len(method_list) - 1, 0.6)]
+            na_xy_list = [(0, 0.6)]
+            if 'SL' in method_list:
+                na_xy_list.append((len(method_list) - 1, 0.6))
             plt.sca(ax)
             for na_x, na_y in na_xy_list:
                 plt.plot([na_x, na_x], [0, na_y - 0.2], linewidth=SIZELINE, color=BKCOLOR)
@@ -1958,7 +1981,8 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
             plt.sca(ax)
 
             y_avgs[0] = None
-            y_avgs[-1] = None
+            if 'SL' in method_list:
+                y_avgs[-1] = None
 
         else:
             scatter_indices = np.arange(0, len(ys))
@@ -1978,11 +2002,13 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
         pprops['hide']   = []
 
         mp.plot(type='bar', ax=ax, x=[xs], y=[y_avgs], plotprops=hist_props, **pprops)
-        if annot and (row == 3 or row == 2):
+        # if annot and (row == 3 or row == 2):
+        if annot:
             for x, y in zip(xs, y_avgs):
                 plt.sca(ax)
-                annotation = '%.2f' % y if row == 3 else ('%.3f' % y)
-                plt.text(x - 0.3, min(y * 1.2, ceil * 1.2) if ceil is not None else y * 1.2, annotation, fontsize=SIZESUBLABEL)
+                # annotation = '%.2f' % y if row == 3 else ('%.3f' % y)
+                annotation = '%.3f' % y
+                plt.text(x - 0.3, min(y * 1.2, ceil * 1.2) if ceil is not None else y * 1.2, annotation, fontsize=SIZELABEL / 1.5)
 
         del pprops['colors']
 
@@ -2096,7 +2122,7 @@ def plot_figure_clusterizations_LTEE(populations, clusterizations):
 
 
 def get_axes_for_reconstruction_example_LTEE(figsize=None, small_cov_box=False):
-    ratio   = 0.33
+    ratio   = 0.36  # 0.33
     w       = DOUBLE_COLUMN
     h       = ratio * w
     if figsize is not None:
@@ -2107,9 +2133,9 @@ def get_axes_for_reconstruction_example_LTEE(figsize=None, small_cov_box=False):
     divider_width = 0.1
     box_left = 0.065
     # box_bottom = 0.14
-    box_top = 0.95
+    box_top = 0.9  # 0.95
     ddy = 0.07  # Adjust hspace
-    dy = 0.37  # Adjusts height of each subplot. Also adjusts height of white space below the subplots.
+    dy = 0.35  # 0.37  # Adjusts height of each subplot. Also adjusts height of white space below the subplots.
     # Height of heatmap = cov_top - cov_bottom
     # Width of heatmap = (cov_top - cov_bottom) * (h / w)
 
@@ -2148,9 +2174,54 @@ def get_axes_for_reconstruction_example_LTEE(figsize=None, small_cov_box=False):
     return fig, axes
 
 
-def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, directory=LH.CLUSTERIZATION_OUTPUT_DIR, flattened=False, alpha=0.4, plotIntpl=True, ylim=(-0.03, 1.03), linewidth=SIZELINE, bbox_to_anchor_legend=(-0.005, 0.5), annotation_line_size=SIZEANNOTATION, legend_frameon=False, plot_legend_out_on_the_right=True, save_file=None, figsize=None):
+def get_axes_for_reconstruction_example_LTEE_p6(figsize=None, small_cov_box=False):
+    ratio   = 1
+    w       = DOUBLE_COLUMN
+    h       = ratio * w
+    if figsize is not None:
+        fig = plt.figure(figsize=figsize)
+    else:
+        fig = plt.figure(figsize=(w, h))
 
-    fig, axes = get_axes_for_reconstruction_example_LTEE(figsize=figsize)
+    divider_height = 0.08
+    box_left = 0.2
+    box_right = 0.8
+    box_bottom = 0.1
+    box_top = 0.95
+    ddy = 0.07 / (ratio / 0.33)  # Adjust hspace
+    dy = 0.37 / (ratio / 0.33)  # Adjusts height of each subplot. Also adjusts height of white space below the subplots.
+    # Height of heatmap = cov_top - cov_bottom
+    # Width of heatmap = (cov_top - cov_bottom) * (h / w)
+
+    cov_top = box_top-(2*dy)-(1*ddy) - divider_height
+    cov_bottom = box_bottom
+    cov_left = box_left - 0.05
+    cov_right = box_right + 0.05
+
+    traj_boxes = [dict(left=box_left,
+                  right=box_right,
+                  bottom=box_top-((i+1)*dy)-(i*ddy),
+                  top=box_top-(i*dy)-(i*ddy)) for i in range(2)]
+
+    cov_box = dict(left=cov_left,
+                   right=cov_right,
+                   bottom=cov_bottom,
+                   top=cov_top)
+
+    boxes = traj_boxes + [cov_box]
+    print(boxes)
+    gridspecs = [gridspec.GridSpec(1, 1, **boxes[i]) for i in range(len(boxes))]
+    axes = [plt.subplot(gridspecs[i][0, 0]) for i in range(len(gridspecs))]
+    return fig, axes
+
+
+
+def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, directory=LH.CLUSTERIZATION_OUTPUT_DIR, flattened=False, alpha=0.4, plotIntpl=True, ylim=(-0.03, 1.03), linewidth=SIZELINE, bbox_to_anchor_legend=(-0.005, 0.5), annotation_line_size=SIZEANNOTATION, legend_frameon=False, plot_legend_out_on_the_right=True, plot_dxdx_by_clades=False, plot_cov_by_clades=False, xtick_distance=40, cbar_shrink=1, save_file=None, figsize=None):
+
+    if pop == 'p6':
+        fig, axes = get_axes_for_reconstruction_example_LTEE_p6(figsize=figsize)
+    else:
+        fig, axes = get_axes_for_reconstruction_example_LTEE(figsize=figsize)
     xlabel, ylabel = 'Generation', 'Frequency'
     xticks = range(0, 60001, 10000)
     # tStart, tEnd = reconstruction.times[0], reconstruction.times[-1]
@@ -2240,9 +2311,22 @@ def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, directory
     plt.sca(axes[2])
     ax = plt.gca()
     segmentedIntDxdx, groups = LH.load_dxdx_for_LTEE(pop, directory=directory)
-    plot_dxdx_heatmap(segmentedIntDxdx, groups, as_subplot=True)
+    if plot_dxdx_by_clades:
+        intDxdx = RC.undoSegmentMatrix(segmentedIntDxdx, groups)
+        clades = [reconstruction.otherMuts] + reconstruction.cladeMuts
+        segmentedIntDxdx, clades_sorted = RC.segmentMatrix(intDxdx, clades)
+        plot_dxdx_heatmap(segmentedIntDxdx, clades, as_subplot=True, xtick_distance=xtick_distance, cbar_shrink=cbar_shrink, ylabel_prefix="Clade", plot_ylabel=False, plot_top_axis=True)
+    elif plot_cov_by_clades:
+        clades = [reconstruction.otherMuts] + reconstruction.cladeMuts
+        segmentedIntCov, clades_sorted = RC.segmentMatrix(reconstruction.recoveredIntCov, clades)
+        plot_dxdx_heatmap(segmentedIntCov, clades, as_subplot=True, xtick_distance=xtick_distance, cbar_shrink=cbar_shrink, ylabel_prefix="Clade", plot_ylabel=False, plot_top_axis=True)
+    else:  # plot_dxdx_by_groups
+        plot_dxdx_heatmap(segmentedIntDxdx, groups, as_subplot=True, xtick_distance=xtick_distance, cbar_shrink=cbar_shrink)
     plt.setp(ax.spines.values(), **DEF_AXPROPS)
-    plt.text(x=-0.07, y=0.97, s=SUBLABELS[2], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+    if pop == 'p6':
+        plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[2], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+    else:
+        plt.text(x=-0.07, y=0.97, s=SUBLABELS[2], transform=ax.transAxes, **DEF_SUBLABELPROPS)
 
     # if legend_frameon:
     #     plt.subplots_adjust(0.06, 0.15, 0.83, 0.96)
@@ -2398,6 +2482,66 @@ def plot_figure_reconstruction_example_LTEE_two_periods(pop, rec1, rec2, data, d
     plt.show()
     if save_file:
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
+def plot_identity_two_periods(pop, rec1, rec2, data, square=True, cmap=CMAP, reduce_vmax=False, plot_xticks=True, plot_yticks=True, xticklabels_rotation=0, yticklabels_rotation=0):
+
+    ax = plt.gca()
+
+    pop_to_vmax = {
+        'm1': 1000, 'm2': 1000, 'm4': 600, 'm5': 90, 'm6': 60, 'p1': 100, 'p3': 500, 'p5': 60
+    }
+
+    num_clades_LTEE = 2
+    clade_LTEE_to_identity_index = get_mapping_clade_LTEE_to_identity_index()
+
+    identity_to_muts = compare_cladeMuts(rec1, rec2)
+
+    cladeMuts = []
+    for k in range(rec1.numClades):
+        cladeMuts.append(identity_to_muts[k][-1])
+    for k in range(rec2.numClades):
+        cladeMuts.append(identity_to_muts[-1][k])
+
+    sharedMuts = []
+    for k1 in range(rec1.numClades):
+        for k2 in range(rec2.numClades):
+            sharedMuts += identity_to_muts[k1][k2]
+
+    otherMuts = identity_to_muts[-1][-1]
+
+    num_clades = len(cladeMuts)
+
+    yticks = np.arange(0, num_clades + 1) + 0.5
+    yticklabels_complete = [f'Clade {k}' for k in range(1, num_clades + 1)] + ['Other']
+    xticks = np.arange(0, num_clades_LTEE + 1) + 0.5
+    # xticklabels = ['Major clade', 'Minor clade', 'Ancestral, Basal & Extinct']
+    xticklabels = ['Major', 'Minor', 'Other']
+    identity_counts = np.zeros((num_clades + 1, num_clades_LTEE + 1))
+    for k, muts in enumerate(cladeMuts + [otherMuts + sharedMuts]):
+        for index in muts:
+            site = data[pop]['sites_intpl'][index]
+            clade_LTEE = data[pop]['site_to_clade'][site]
+            identity_index = clade_LTEE_to_identity_index[clade_LTEE]
+            identity_counts[k, identity_index] += 1
+
+    if pop in EXCHANGE_FIRST_TWO_CLADES_LTEE and EXCHANGE_FIRST_TWO_CLADES_LTEE[pop]:
+        temp = np.copy(identity_counts[0])
+        identity_counts[0, :] = identity_counts[1]
+        identity_counts[1, :] = temp
+
+    sns.heatmap(identity_counts, center=0, vmin=0, vmax=pop_to_vmax[pop] if reduce_vmax else None, cmap=cmap, square=square, cbar=False, annot=True, fmt='.0f', annot_kws={"size": SIZEANNOTATION_HEATMAP})
+    if plot_xticks:
+        plt.xticks(ticks=xticks, labels=xticklabels, fontsize=SIZELABEL, rotation=xticklabels_rotation)
+    else:
+        plt.xticks(ticks=[], labels=[], fontsize=SIZELABEL)
+    if plot_yticks:
+        plt.yticks(ticks=yticks, labels=yticklabels_complete, fontsize=SIZELABEL, rotation=yticklabels_rotation)
+    else:
+        plt.yticks(ticks=[], labels=[], fontsize=SIZELABEL)
+
+    ax.tick_params(**DEF_TICKPROPS_HEATMAP)
+    plt.setp(ax.spines.values(), **DEF_AXPROPS)
 
 
 def plot_figure_reconstruction_example_LTEE_two_periods_alternative(pop, rec1, rec2, data, directory=LH.CLUSTERIZATION_OUTPUT_DIR, flattened=False, alpha=0.15, alpha_shared_muts=0.3, plotIntpl=True, ylim=(-0.03, 1.03), linewidth=SIZELINE, linewidth_shared_muts=SIZELINE, bbox_to_anchor_legend=(-0.005, 0.5), annotation_line_size=SIZEANNOTATION, legend_frameon=False, plot_legend_out_on_the_right=True, save_file=None, figsize=None):
@@ -2571,11 +2715,15 @@ def plot_identity_comparison(rec1, rec2, identity_to_muts=None, square=True,
     plt.ylabel('Clades inferred in first period', fontsize=SIZELABEL)
 
 
-def plot_dxdx_heatmap(dxdx, groups, as_subplot=False, ylabel_x=-0.21, alpha=0.5, grid_line_offset=0, cbar_shrink=1, xtick_distance=40, figsize=(4, 3), rasterized=True, save_file=None):
+def plot_dxdx_heatmap(dxdx, groups, as_subplot=False, ylabel_x=-0.21, alpha=0.5, grid_line_offset=0, cbar_shrink=1, xtick_distance=40, figsize=(4, 3), rasterized=True, ylabel_prefix="Group", plot_ylabel=False, plot_top_axis=False, save_file=None):
 
     L = len(dxdx)
-    if L > 6000:
+    if L > 8000:
+        xtick_distance = 2000
+    elif L > 6000:
         xtick_distance = 1000
+    elif L > 3000:
+        xtick_distance = 800
     elif L > 1000:
         xtick_distance = 400
     if not as_subplot:
@@ -2589,12 +2737,47 @@ def plot_dxdx_heatmap(dxdx, groups, as_subplot=False, ylabel_x=-0.21, alpha=0.5,
     cbar.ax.tick_params(**DEF_TICKPROPS_COLORBAR)
     xticklabels = np.arange(0, L + xtick_distance // 2, xtick_distance)
     xticks = [l for l in xticklabels]
-    ticks, ylabels, group_sizes = get_ticks_and_labels_for_clusterization(groups, name='Group', note_size=True)
+    ticks, ylabels, group_sizes = get_ticks_and_labels_for_clusterization(groups, name=ylabel_prefix, note_size=True)
     # plot_ticks_and_labels_for_clusterization(ticks, ylabels, group_sizes, ylabel_x=ylabel_x)
     ax.hlines([_ + grid_line_offset for _ in ticks], *ax.get_xlim(), color=GREY_COLOR_HEX, alpha=alpha, linewidth=SIZELINE * 1.2)
     ax.vlines([_ + grid_line_offset for _ in ticks], *ax.get_ylim(), color=GREY_COLOR_HEX, alpha=alpha, linewidth=SIZELINE * 1.2)
-    set_ticks_labels_axes(yticks=[], yticklabels=[], xticks=xticks, xticklabels=xticklabels)
+    if plot_ylabel:
+        yticks, yticklabels = ticks, ylabels
+    else:
+        yticks, yticklabels = [], []
+    set_ticks_labels_axes(yticks=yticks, yticklabels=yticklabels, xticks=xticks, xticklabels=xticklabels)
     plt.xlabel('Locus index', fontsize=SIZELABEL)
+
+    if plot_top_axis:
+        ax2 = ax.twiny()  # ax2 is responsible for "top" axis
+        ticks = [0] + ticks
+        print(ticks)
+        ticks = [(ticks[i] + ticks[i + 1]) / 2 for i in range(len(ticks) - 1)]
+        print(ticks)
+        ylabels = [_.replace(" (", "\n(") for _ in ylabels]
+        if L > 10000:  # pop p6
+            ticks[1] -= 700
+            ticks[2] -= 500
+        else:
+            min_tick_dist = L * 0.175
+            for i in range(len(ticks) - 2, 0, -1):
+                if ticks[i + 1] - ticks[i] < min_tick_dist:
+                    ticks[i] = ticks[i + 1] - min_tick_dist
+        print(ticks)
+        plt.sca(ax2)
+        plt.xticks(ticks=ticks, labels=ylabels, fontsize=SIZELABEL, rotation=0)
+        plt.xlim(0, L)
+        ax2.tick_params(**DEF_TICKPROPS_COV_TOP)
+        plt.setp(ax.spines.values(), **DEF_AXPROPS)
+        ax2.spines['top'].set_visible(False)
+        ax2.spines['right'].set_visible(False)
+        ax2.spines['bottom'].set_visible(False)
+        ax2.spines['left'].set_visible(False)
+        # ax2.axis["right"].major_ticklabels.set_visible(False)
+        # ax2.axis["left"].major_ticklabels.set_visible(False)
+        # ax2.axis["bottom"].major_ticklabels.set_visible(False)
+        # ax2.axis["top"].major_ticklabels.set_visible(True)
+
     if not as_subplot:
         plt.show()
     if not as_subplot and save_file:
@@ -2652,7 +2835,7 @@ def plot_figure_identity_example_LTEE(pop, reconstruction, data, save_file=None)
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
 
 
-def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arrangement=True, mark_nonclonal_with_rectangle=False, plot_ylabel_for_all_second_row=True, mark_nonclonal_with_horizontal_text=True, mark_nonclonal_with_vertical_text=False, nRow=2, nCol=4, wspace=0.3, hspace=0.3, square=False, reduce_vmax=False, ticklabels_rotation=0, plot_single_column=False, plot_sublabel=True, save_file=None):
+def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arrangement=True, mark_nonclonal_with_rectangle=False, plot_ylabel_for_all_second_row=True, mark_nonclonal_with_horizontal_text=True, mark_nonclonal_with_vertical_text=False, nRow=2, nCol=4, wspace=0.3, hspace=0.3, square=False, reduce_vmax=False, ticklabels_rotation=0, title_prefix='', plot_single_column=False, plot_sublabel=True, save_file=None, rec1=None, rec2=None):
     w = SINGLE_COLUMN if plot_single_column else DOUBLE_COLUMN
 
     if custom_arrangement:
@@ -2720,15 +2903,18 @@ def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arran
             # plot_xticks = True if i in [3, 4] else False
             plot_xticks = True
             plot_identity_helper(pop, reconstructions[pop], data, square=square, reduce_vmax=reduce_vmax, plot_xticks=plot_xticks, plot_yticks=(i == 0), xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
-            plt.title(f"Population {pop}", fontsize=SIZELABEL)
+            plt.title(f"{title_prefix}{pop}", fontsize=SIZELABEL)
             if i == 0:
                 if plot_sublabel:
                     plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[0], transform=ax.transAxes, **DEF_SUBLABELPROPS)
 
         for i, pop in enumerate(populations_3_clades):
             ax = plt.subplot(srl_gs[0, i])
-            plot_identity_helper(pop, reconstructions[pop], data, square=square, reduce_vmax=reduce_vmax, plot_xticks=True, plot_yticks=True if plot_ylabel_for_all_second_row else (i == 0), xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
-            plt.title(f"Population {pop}", fontsize=SIZELABEL)
+            if pop == 'p3':
+                plot_identity_two_periods(pop, rec1, rec2, data, square=square, reduce_vmax=reduce_vmax, plot_xticks=True, plot_yticks=True if plot_ylabel_for_all_second_row else (i == 0), xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
+            else:
+                plot_identity_helper(pop, reconstructions[pop], data, square=square, reduce_vmax=reduce_vmax, plot_xticks=True, plot_yticks=True if plot_ylabel_for_all_second_row else (i == 0), xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
+            plt.title(f"{title_prefix}{pop}", fontsize=SIZELABEL)
             if i == 0:
                 if plot_sublabel:
                     plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[1], transform=ax.transAxes, **DEF_SUBLABELPROPS)
@@ -2736,14 +2922,14 @@ def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arran
         pop = special_pop
         ax = plt.subplot(srm_gs[0, 0])
         plot_identity_helper(pop, reconstructions[pop], data, square=square, cmap=CMAP_NONCLONAL, reduce_vmax=reduce_vmax, plot_xticks=True, plot_yticks=True, xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
-        plt.title(f"Population {pop}", fontsize=SIZELABEL)
+        plt.title(f"{title_prefix}{pop}", fontsize=SIZELABEL)
         if plot_sublabel:
             plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[2], transform=ax.transAxes, **DEF_SUBLABELPROPS)
 
         for i, pop in enumerate(populations_4_clades):
             ax = plt.subplot(srr_gs[0, i])
             plot_identity_helper(pop, reconstructions[pop], data, square=square, cmap=CMAP_NONCLONAL, reduce_vmax=reduce_vmax, plot_xticks=True, plot_yticks=True if plot_ylabel_for_all_second_row else (i == 0), xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
-            plt.title(f"Population {pop}", fontsize=SIZELABEL)
+            plt.title(f"{title_prefix}{pop}", fontsize=SIZELABEL)
 
         if mark_nonclonal_with_rectangle:
             rect = matplotlib.patches.Rectangle((-9.8, -1.3), 13, 7.5, clip_on=False, linewidth=0.6, edgecolor=GREY_COLOR_HEX, facecolor='none')
@@ -2774,7 +2960,7 @@ def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arran
             at_bottom = (i//nCol == nRow - 1)
             at_left = (i%nCol == 0)
             plot_identity_helper(pop, reconstructions[pop], data, square=square, reduce_vmax=reduce_vmax, plot_xticks=at_bottom, plot_yticks=at_left, xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
-            plt.title(f"Population {pop}", fontsize=SIZELABEL)
+            plt.title(f"{title_prefix}{pop}", fontsize=SIZELABEL)
         if nCol == 6 and nRow == 2:
             plt.subplots_adjust(0.06, 0.1, 0.98, 0.9, wspace=wspace, hspace=hspace)
         else:
@@ -2935,6 +3121,11 @@ def plot_perf_bars(measured_fitness, inferred_fitness_list, ylabel=LABEL_SPEARMA
     pprops['hide']   = []
 
     mp.plot(type='bar', ax=ax, x=[xs], y=[ys], plotprops=hist_props, **pprops)
+    for method, inferred_fitness, x, y in zip(methods, inferred_fitness_list, xs, ys):
+        if np.isnan(y):
+            na_x, na_y = x - 0.225, 0.2
+            plt.plot([x, x], [0.01, na_y - 0.05], linewidth=SIZELINE, color=BKCOLOR)
+            plt.text(na_x, na_y, 'NA', fontsize=SIZESUBLABEL)
 
 
 def plot_clade_annotation(annotXs, annotYs, clade_colors, clade_labels, background_width=10.8, background_width_for_ancestor=12.8, background_height=0.09, background_color='#f2f2f2'):
@@ -2947,7 +3138,8 @@ def plot_clade_annotation(annotXs, annotYs, clade_colors, clade_labels, backgrou
 
 def plot_figure_performance_on_data_PALTE(traj, reconstruction, measured_fitness_by_pop, inferred_fitness_by_pop_list, times=PALTEanalysis.TIMES, plot_single_column=False, use_pearsonr=False, plot_muller_plot=True, background_width=65, background_width_for_ancestor=75, background_height=0.09, background_color='#f2f2f2', methods=PALTEanalysis.METHODS, alpha=0.5, ylim=(-0.03, 1.03), grid_line_offset=-0.5, save_file=None):
 
-    fig, axes = get_axes_for_performance_on_real_data(plot_single_column=plot_single_column)
+    perf_box_squeeze = 0.1 if len(methods) == 4 else 0.07
+    fig, axes = get_axes_for_performance_on_real_data(plot_single_column=plot_single_column, perf_box_squeeze=perf_box_squeeze)
 
     measured_fitness, inferred_fitness_list = PALTEanalysis.parse_fitness_by_pop_into_list(measured_fitness_by_pop, inferred_fitness_by_pop_list)
 
@@ -3021,7 +3213,8 @@ def plot_figure_fitness_biplot_PALTE(measured_fitness_by_pop, inferred_fitness_b
 
 def plot_figure_performance_on_data_tobramycin(traj, reconstruction, measured_MIC_list, median_inferred_fitness_lists, times=tobramycin_analysis.TIMES_PA, plot_single_column=False, use_pearsonr=False, plot_muller_plot=True, background_width=9, background_height=0.09, background_color='#f2f2f2', methods=tobramycin_analysis.METHODS, alpha=0.5, xticks=np.arange(0, 90, 10), ylim=(-0.03, 1.03), grid_line_offset=0, save_file=None):
 
-    fig, axes = get_axes_for_performance_on_real_data(plot_single_column=plot_single_column, perf_box_squeeze=0.07)
+    perf_box_squeeze = 0.1 if len(methods) == 4 else 0.07
+    fig, axes = get_axes_for_performance_on_real_data(plot_single_column=plot_single_column, perf_box_squeeze=perf_box_squeeze)
 
     xlim = (-2, 80)
     ylim = (-0.04, 1.04)
@@ -3100,7 +3293,7 @@ def plot_figure_runtime_LTEE(populations, num_alleles_sorted, run_time, methods=
         if fit_linear_regression:
             reg = stats.linregress(np.log10(xs), np.log10(ys))
             predictor = lambda x: x * reg.slope + reg.intercept
-            if plot_linear_regression and method == 'recovered':
+            if plot_linear_regression and method == OUR_METHOD_NAME:
                 xs = [1.5e2, 1.5e4]
                 ys = [10 ** predictor(np.log10(x)) for x in xs]
                 print(f'method={method}, slope=%.3f, intercept=%.3f, rvalue=%.3f, pvalue=%.3f' % (reg.slope, reg.intercept, reg.rvalue, reg.pvalue))

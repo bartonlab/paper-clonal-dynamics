@@ -68,6 +68,8 @@ LTEE_TRAJ_DIR_REL = '../LTEE_trajectories'
 CLUSTERIZATION_OUTPUT_DIR_REL = '../clusterization_output'
 
 METHODS = FIG.METHODS
+OUR_METHOD_NAME = FIG.OUR_METHOD_NAME
+TRUE_COV_NAME = FIG.TRUE_COV_NAME
 
 CMAP = FIG.CMAP
 
@@ -744,14 +746,14 @@ def check_simulation_results_for_haplosep(p, results_haplosep=None):
 ############################################
 
 
-def get_reconstruction_of_simulation(simulation, mu=2e-4, useEffectiveMu=True, meanReadDepth=1000, verbose=False, debug=False, plot=False, thFixed=0.99):
+def get_reconstruction_of_simulation(simulation, mu=2e-4, useEffectiveMu=True, meanReadDepth=1000, verbose=False, debug=False, plot=False, thFixed=0.99, assumeCooperationAmongSharedMuts=False):
     reconstruction = RC.CladeReconstruction(simulation['traj'], mu=mu, useEffectiveMu=useEffectiveMu, meanReadDepth=meanReadDepth, verbose=verbose, plot=plot, debug=debug)
 
     reconstruction.setParamsForClusterization(weightByBothVariance=False, weightBySmallerVariance=False, weightBySmallerInterpolatedVariance=True)
     reconstruction.clusterMutations()
     reconstruction.setParamsForReconstruction(thFixed=thFixed, thExtinct=0, numClades=None, thLogProbPerTime=10)
     reconstruction.checkForSeparablePeriodAndReconstruct()
-    reconstruction.setParamsForEvaluation(intCov=simulation['cov'], selection=simulation['selections'], fitness=np.sum(simulation['selections'] * simulation['traj'], axis=1))
+    reconstruction.setParamsForEvaluation(intCov=simulation['cov'], selection=simulation['selections'], fitness=np.sum(simulation['selections'] * simulation['traj'], axis=1), assumeCooperationAmongSharedMuts=assumeCooperationAmongSharedMuts)
     evaluation = reconstruction.evaluate()
     return reconstruction, evaluation
 
@@ -775,7 +777,7 @@ def get_inference_of_true_cov_and_SL_for_simulation(simulation, reg=1, mu=0, use
     return reconstruction.evaluateInferenceForTrueCovAndSL(reg=reg)
 
 
-def print_performance_for_a_simulation(simulation, methods=['SL', 'true_cov']):
+def print_performance_for_a_simulation(simulation, methods=['SL', TRUE_COV_NAME]):
 
     (MAE_cov, Spearmanr_cov, Pearsonr_cov, MAE_selection, Spearmanr_selection, Pearsonr_selection,   MAE_fitness, Spearmanr_fitness, Pearsonr_fitness) = parse_performance_for_a_simulation(simulation, methods=methods, computePerfOnGenotypeFitness=True)
 
@@ -795,7 +797,7 @@ def parse_performance_for_a_simulation(simulation, reg=1, methods=METHODS, muFor
     T, L = simulation['traj'].shape
     N = np.sum(simulation['nVec'][0])
 
-    if 'recovered' in methods:
+    if OUR_METHOD_NAME in methods:
         rec, evaluation = get_reconstruction_of_simulation(simulation, mu=muForInference, useEffectiveMu=False)
         perf = rec.summary
     else:
@@ -828,7 +830,7 @@ def parse_performance_for_a_simulation(simulation, reg=1, methods=METHODS, muFor
         return MAE_cov, Spearmanr_cov, Pearsonr_cov, MAE_selection, Spearmanr_selection, Pearsonr_selection
 
 
-def parse_performance_for_ps(ps, reg=1, methods=['true_cov', 'recovered', 'SL']):
+def parse_performance_for_ps(ps, reg=1, methods=[TRUE_COV_NAME, OUR_METHOD_NAME, 'SL']):
 
     MAE_selection_dic = {_: [] for _ in methods}
     Spearmanr_selection_dic = {_: [] for _ in methods}
@@ -850,34 +852,43 @@ def parse_performance_for_ps(ps, reg=1, methods=['true_cov', 'recovered', 'SL'])
     return MAE_selection_dic, Spearmanr_selection_dic, Pearsonr_selection_dic, MAE_fitness_dic, Spearmanr_fitness_dic, Pearsonr_fitness_dic
 
 
-def save_reconstructions_on_simulated_data(p, reg=1, methods=METHODS, muForInference=0, reference='true', overwrite=False):
+def save_reconstructions_on_simulated_data(p, reg=1, methods=METHODS, muForInference=0, reference='true', assumeCooperationAmongSharedMuts=False, overwrite=False):
 
     start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
+
+    if assumeCooperationAmongSharedMuts:
+        postfix = "_assumeCoopAmongSharedMuts"
+    else:
+        postfix = ""
 
     for n in range(num_trials):
         if not overwrite:
             try:
-                load_reconstruction_for_a_simulation(p, n)
+                load_reconstruction_for_a_simulation(p, n, assumeCooperationAmongSharedMuts=assumeCooperationAmongSharedMuts)
                 continue
             except:
                 pass
         simulation = load_simulation(p, n)
         T, L = simulation['traj'].shape
         N = np.sum(simulation['nVec'][0])
-        reconstruction, evaluation = get_reconstruction_of_simulation(simulation, mu=muForInference, useEffectiveMu=False)
-        output = f'{SIMULATION_RECONSTRUCTION_DIR}/simulation_reconstruction_{parse_filename_postfix(p, n)}.obj'
+        reconstruction, evaluation = get_reconstruction_of_simulation(simulation, mu=muForInference, useEffectiveMu=False, assumeCooperationAmongSharedMuts=assumeCooperationAmongSharedMuts)
+        output = f'{SIMULATION_RECONSTRUCTION_DIR}/simulation_reconstruction_{parse_filename_postfix(p, n)}{postfix}.obj'
         fp = open(output, 'wb')
         pickle.dump(reconstruction, fp, protocol=4)
         fp.close()
 
 
-def load_reconstruction_for_a_simulation(p, n, directory=SIMULATION_RECONSTRUCTION_DIR):
-    file = f'{directory}/simulation_reconstruction_{parse_filename_postfix(p, n)}.obj'
+def load_reconstruction_for_a_simulation(p, n, directory=SIMULATION_RECONSTRUCTION_DIR, assumeCooperationAmongSharedMuts=False):
+    if assumeCooperationAmongSharedMuts:
+        postfix = "_assumeCoopAmongSharedMuts"
+    else:
+        postfix = ""
+    file = f'{directory}/simulation_reconstruction_{parse_filename_postfix(p, n)}{postfix}.obj'
     with open(file, 'rb') as fp:
         return pickle.load(fp)
 
 
-def parse_performance_on_simulated_data(p, directory=SIMULATION_RECONSTRUCTION_DIR, reg=1, methods=METHODS, muForInference=0, reference='true', include_Lolipop=True, include_Evoracle=True, include_haploSep=False, use_inferred_geno_traj_for_Evoracle=False, use_inferred_geno_traj_for_haploSep=False, computePerfOnGenotypeFitness=False, print_process=True):
+def parse_performance_on_simulated_data(p, directory=SIMULATION_RECONSTRUCTION_DIR, reg=1, methods=METHODS, muForInference=0, reference='true', include_Lolipop=True, include_Evoracle=True, include_haploSep=False, use_inferred_geno_traj_for_Evoracle=False, use_inferred_geno_traj_for_haploSep=False, computePerfOnGenotypeFitness=False, assumeCooperationAmongSharedMuts=False, print_process=True):
 
     start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
 
@@ -922,8 +933,8 @@ def parse_performance_on_simulated_data(p, directory=SIMULATION_RECONSTRUCTION_D
         T, L = simulation['traj'].shape
         N = np.sum(simulation['nVec'][0])
 
-        if 'recovered' in methods:
-            reconstruction = load_reconstruction_for_a_simulation(p, n, directory=directory)
+        if OUR_METHOD_NAME in methods:
+            reconstruction = load_reconstruction_for_a_simulation(p, n, directory=directory, assumeCooperationAmongSharedMuts=assumeCooperationAmongSharedMuts)
             # rec, evaluation = get_reconstruction_of_simulation(simulation, mu=muForInference, useEffectiveMu=False)
             perf = reconstruction.summary
         else:
@@ -1015,7 +1026,7 @@ def parse_performance_on_simulated_data(p, directory=SIMULATION_RECONSTRUCTION_D
         return MAE_cov, Spearmanr_cov, Pearsonr_cov, MAE_selection, Spearmanr_selection, Pearsonr_selection
 
 
-def parse_performance_for_ps_for_WF_simulation(ps, reg=1, muForInference=1e-3, methods=['true_cov', 'recovered', 'SL']):
+def parse_performance_for_ps_for_WF_simulation(ps, reg=1, muForInference=1e-3, methods=[TRUE_COV_NAME, OUR_METHOD_NAME, 'SL']):
 
     MAE_selection_dic = {_: [] for _ in methods}
     Spearmanr_selection_dic = {_: [] for _ in methods}
@@ -1053,7 +1064,7 @@ def parse_performance_on_simulated_data_for_WF_simulation(p, reg=1, methods=METH
         T, L = simulation['traj'].shape
         N = np.sum(simulation['nVec'][0])
 
-        if 'recovered' in methods:
+        if OU in methods:
             rec, evaluation = get_reconstruction_of_simulation(simulation, mu=muForInference, useEffectiveMu=False)
             perf = rec.summary
         else:
@@ -1082,7 +1093,7 @@ def parse_performance_on_simulated_data_for_WF_simulation(p, reg=1, methods=METH
     if computePerfOnGenotypeFitness:
         return MAE_cov, Spearmanr_cov, Pearsonr_cov, MAE_selection, Spearmanr_selection, Pearsonr_selection, MAE_fitness, Spearmanr_fitness, Pearsonr_fitness
     else:
-        return MAE_cov, Spearmanr_cov, Pearsonr_cov, MAE_selection, Spearmanr_selection, Pearsonr_selection
+        return MAE_cov, Spearmanr_cov, Pearsonr_cov, MAE_selection, Spearmanr_selection, Pearsonr_selectionR_METHOD_NAME
 
 
 
@@ -1127,7 +1138,7 @@ def plot_num_genotypes_vs_num_alleles_for_ps(ps, xs, xlabel='recombination_rate'
         plt.show()
 
 
-def plot_performance_for_ps(MAE_selection_dic, Spearmanr_selection_dic, MAE_fitness_dic, Spearmanr_fitness_dic, xs, xlabel='recombination_rate', methods=['true_cov', 'recovered', 'SL'], figsize=(5, 8), plot_figure=True, plot_show=True, log_scale_for_x=True, Pearsonr_for_y=False, alpha=0.8):
+def plot_performance_for_ps(MAE_selection_dic, Spearmanr_selection_dic, MAE_fitness_dic, Spearmanr_fitness_dic, xs, xlabel='recombination_rate', methods=[TRUE_COV_NAME, OUR_METHOD_NAME, 'SL'], figsize=(5, 8), plot_figure=True, plot_show=True, log_scale_for_x=True, Pearsonr_for_y=False, alpha=0.8):
 
     metrics = [MAE_selection_dic, Spearmanr_selection_dic, MAE_fitness_dic, Spearmanr_fitness_dic]
     if Pearsonr_for_y:
@@ -1144,8 +1155,8 @@ def plot_performance_for_ps(MAE_selection_dic, Spearmanr_selection_dic, MAE_fitn
         for method in methods:
             plt.scatter(xs, metric[method], alpha=alpha, label=method)
         for i, x in enumerate(xs):
-            y = (metric['true_cov'][i] +  metric['SL'][i]) / 2
-            text = '%.2f' % (metric['true_cov'][i] - metric['SL'][i])
+            y = (metric[TRUE_COV_NAME][i] +  metric['SL'][i]) / 2
+            text = '%.2f' % (metric[TRUE_COV_NAME][i] - metric['SL'][i])
             plt.text(x, y, text)
         if i == 0:
             plt.legend()
@@ -1246,7 +1257,7 @@ def degenerate_a_mutation(simulation, l, alpha=0.6):
     return dict(traj=traj, cov=cov_new, sVec=sVec_new, nVec=nVec, selections=selections_new)
 
 
-def evaluate_perf_as_we_degenerate_a_simulation(simulation, num_degeneration, methods=['SL', 'true_cov']):
+def evaluate_perf_as_we_degenerate_a_simulation(simulation, num_degeneration, methods=['SL', TRUE_COV_NAME]):
 
     traj, cov, sVec, nVec = simulation['traj'], simulation['cov'], simulation['sVec'], simulation['nVec']
     selections = simulation['selections']

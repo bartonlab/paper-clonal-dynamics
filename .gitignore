@@ -8,6 +8,9 @@ recombination.ipynb
 analysis.jpynb
 test_simulation_with_various_settings.ipynb
 scp_commands.ipynb
+test - compute G(t) following Buffalo and Coop.ipynb
+test_compare_new_and_old_reconstruction.ipynb
+figures_overview.ipynb
 
 # Large directories
 data
