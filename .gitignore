@@ -1,22 +1,24 @@
-# Local files
+# Files
 .ipynb_checkpoints
 __pycache__
-drafts
+recombination.ipynb
+analysis.ipynb
+scp_commands.ipynb
 figures_deprecated.ipynb
 figures_additional.ipynb
-recombination.ipynb
-analysis.jpynb
 test_simulation_with_various_settings.ipynb
-scp_commands.ipynb
 test - compute G(t) following Buffalo and Coop.ipynb
 test_compare_new_and_old_reconstruction.ipynb
 test_compare_with_lolipop.ipynb
 figures_overview.ipynb
 figures_overview_cartoon.ipynb
+data.zip
 
-
-# Large directories
+# Directories
+drafts
 data
+test_data
+backup_data
 jobs
 test_figures
 
