@@ -354,6 +354,33 @@ import tobramycin_analysis
 
 ############# HELPER  FUNCTIONS #############
 
+
+import subprocess
+
+def optimize_pdf(filename, replace_original_figure=True):
+    filename_tmp = filename.split('.')[-2] + '_size_optimized.pdf'
+    gs_command = [
+        'gs',
+        '-sDEVICE=pdfwrite',
+        '-dEmbedAllFonts=false',
+        '-dSubsetFonts=true',           # Create font subsets
+        '-dPDFSETTINGS=/prepress',      # Use high-quality settings
+        '-dDetectDuplicateImages=true', # Embed images used multiple times only once
+        '-dCompressFonts=true',         # Compress fonts in the output
+        '-dNOPAUSE',                    # No pause after each image
+        '-dBATCH',                      # Automatically exit
+        '-sOutputFile=' + filename_tmp, # Save to temporary output
+        filename                        # Input file
+    ]
+
+    # Run ghostscript command
+    subprocess.run(gs_command)
+
+    # Replace the original file with the optimized one
+    if replace_original_figure:
+        subprocess.run(['mv', filename_tmp, filename])
+
+
 def swap(a, b):
     a, b = b, a
 
@@ -1597,6 +1624,7 @@ def plot_figure_reconstruction_example(simulation, reconstruction, nRow=3, nCol=
     plt.show()
     if save_file:
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+        optimize_pdf(save_file)
 
 
 def plot_figure_performance_example(simulation, reconstruction, evaluation, nRow=3, nCol=2, plot_genotype_fitness=True, threshold=0, compare_with_true=False, compare_with_SL=False, plot_true_cov=False, ylim=(0.95, 1.25), yticks=(1.0, 1.1, 1.2), alpha=0.6, title_pad=4, save_file=None):
@@ -1617,7 +1645,8 @@ def plot_figure_performance_example(simulation, reconstruction, evaluation, nRow
     title_list = [r"True covariance, $C$", r"Recovered covariance, $\hat{C}$", "Error matrix, $\hat{C}-C$"]
     vmin = min(np.min(cov_list[0]), np.min(cov_list[1]))
     vmax = max(np.max(cov_list[0]), np.max(cov_list[1]))
-    cbar_ax = fig.add_axes(rect=[.106, .04, .34, .01])
+    # cbar_ax = fig.add_axes(rect=[.106, .04, .34, .01])
+    # print(cbar_ax)
     cbar_ticks = np.arange(int(vmin/5)*5, int(vmax/5)*5, 50)
     cbar_ticks -= cbar_ticks[np.argmin(np.abs(cbar_ticks))]
     matrix_labels = np.arange(1, L+1, 2)
@@ -1727,6 +1756,7 @@ def plot_figure_performance_example(simulation, reconstruction, evaluation, nRow
 
     if save_file:
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+        optimize_pdf(save_file)
 
 
 def plot_figure_performance_Evoracle_example(simulation, reconstruction, evaluation, results_evoracle, nRow=3, nCol=2, plot_genotype_fitness=True, threshold=0, ylim=(0.95, 1.25), yticks=(1.0, 1.1, 1.2), alpha=0.6, title_pad=4, save_file=None):
@@ -2076,6 +2106,7 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
     plt.show()
     if save_file:
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+        optimize_pdf(save_file)
 
 
 def plot_scatter_and_line(xs, ys, color=None, s=SIZEDOT, label=None, edgecolors=EDGECOLORS, marker='.', alpha=1, linewidth=SIZELINE):
@@ -3542,6 +3573,7 @@ def plot_figure_performance_on_data_PALTE(traj, reconstruction, measured_fitness
     plt.show()
     if save_file:
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+        optimize_pdf(save_file)
 
 
 def plot_figure_fitness_biplot_PALTE(measured_fitness_by_pop, inferred_fitness_by_pop_list, methods=PALTEanalysis.METHODS, alpha=1, xlim=(-1, 10), ylim=None, yticks=None, plot_title=True, save_file=None, figsize=(8, 3)):

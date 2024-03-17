@@ -13,6 +13,7 @@ test_compare_with_lolipop.ipynb
 figures_overview.ipynb
 figures_overview_cartoon.ipynb
 data.zip
+data_20231011.zip
 src/_backup_simulate_evolution_before_generalizing_ploidy.py
 
 # Directories
@@ -20,6 +21,7 @@ drafts
 data
 test_data
 backup_data
+backup_figures_before_optimizing_sizes
 jobs
 test_figures
 
