@@ -15,6 +15,7 @@ import sys
 import numpy as np
 import math
 
+import copy
 from copy import deepcopy
 
 import matplotlib
@@ -45,6 +46,14 @@ EST_METHOD_NAME = 'LB'  # 'est_cov'
 METHODS = [TRUE_COV_NAME, OUR_METHOD_NAME, 'Lolipop', 'Evoracle', EST_METHOD_NAME, 'SL']
 METHODS_COMPARE_RUN_TIME = [OUR_METHOD_NAME, 'Lolipop', 'Evoracle']
 MARKERS_METHODS_COMPARE_RUN_TIME = ['o', '^', 'v']
+
+COLOR_PALETTES = {
+    key: sns.color_palette(key) for key in ['deep', 'tab10', 'bright', 'pastel']
+}
+COLORS = COLOR_PALETTES['bright']
+METHOD_COLORS = ['#ff6666', '#FFB511', COLORS[0], COLORS[2], 'grey', 'grey']
+METHOD_MARKERS = ['o', 'd', 'v', '^', '<', '>']
+DELTA_G = r"$\Delta g$"
 
 # Standard color scheme
 
@@ -132,6 +141,7 @@ SIZETICK     = 6
 SMALLSIZEDOT = 6.
 SIZEDOT      = 12
 SIZELINE     = 0.6
+EDGECOLORS   = 'none'
 
 # DEF_FIGPROPS = {
 #     'transparent' : True,
@@ -311,15 +321,17 @@ LABEL_SPEARMANR_COVARIANCE_THREE = "Rank correlation between true\nand inferred 
 
 LABEL_SPEARMANR_FOUR = "Rank correlation\nbetween true and inferred\nselection coefficients\n" + r"(Spearman’s $\rho$)"
 LABEL_SPEARMANR_COVARIANCE_FOUR = "Rank correlation\nbetween true and\ninferred covariances\n" + r"(Spearman’s $\rho$)"
-LABEL_SPEARMANR_FITNESS_FOUR = "Rank correlation\nbetween measured\nand inferred fitness\n" + r"(Spearman’s $\rho$)"
+LABEL_SPEARMANR_FITNESS_FOUR = "Rank correlation\nbetween true\nand inferred fitness\n" + r"(Spearman’s $\rho$)"
 
 LABEL_SPEARMANR_FOUR_2 = "Rank correlation\nbetween true and inferred\nselection coefficients\n" + r"(Spearman’s $\rho$)"
 LABEL_SPEARMANR_COVARIANCE_FOUR_2 = "Rank correlation\nbetween true and\ninferred covariances\n" + r"(Spearman’s $\rho$)"
-LABEL_SPEARMANR_FITNESS_FOUR_2 = "Rank correlation\nbetween measured\nand inferred fitness\n" + r"(Spearman’s $\rho$)"
+LABEL_SPEARMANR_FITNESS_FOUR_2 = "Rank correlation\nbetween true\nand inferred fitness\n" + r"(Spearman’s $\rho$)"
 
 LABEL_PEARSONR_FOUR = "Linear correlation\nbetween true and inferred\nselection coefficients\n" + r"(Pearson’s $r$)"
 LABEL_PEARSONR_COVARIANCE_FOUR = "Linear correlation\nbetween true and\ninferred covariances\n" + r"(Pearson’s $r$)"
-LABEL_PEARSONR_FITNESS_FOUR = "Linear correlation\nbetween measured and\ninferred fitness\n" + r"(Pearson’s $r$)"
+LABEL_PEARSONR_FITNESS_FOUR = "Linear correlation\nbetween true and\ninferred fitness\n" + r"(Pearson’s $r$)"
+
+LABEL_MAE_FITNESS = ' MAE of inferred\nhaplotype fitness'
 
 PARAMS = {'text.usetex': False, 'mathtext.fontset': 'stixsans', 'mathtext.default': 'regular', 'pdf.fonttype': 42, 'ps.fonttype': 42}
 plt.rcParams.update(matplotlib.rcParamsDefault)
@@ -1830,7 +1842,7 @@ def plot_figure_performance_on_simulated_data_helper(ax, yspine_position=0.05, x
     ax.spines['bottom'].set_position(('axes', xspine_position))
 
 
-def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_selection, Spearmanr_selection, MAE_fitness=None, Spearmanr_fitness=None, method_list=METHODS, two_columns=False, plot_legend=False, use_pearsonr=False, evaluate_fitness=False, annot=False, save_file=None):
+def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_selection, Spearmanr_selection, MAE_fitness=None, Spearmanr_fitness=None, method_list=METHODS, two_columns=False, plot_legend=False, use_pearsonr=False, evaluate_fitness=False, annot=False, ymax_MAE_covariance=4, ymax_MAE_fitness=0.08, ymin_spearmanr_fitness=0, save_file=None):
     """
     Comparisons versus existing methods of covariance recovery and selection inference.
     """
@@ -1885,10 +1897,10 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
         axes = [plt.subplot(gridspec[0, 0]) for gridspec in gridspecs]
 
     if MAE_fitness is not None and Spearmanr_fitness is not None:
-        ylim_list = [[0, 4.1], [0, 1.1], [0, 0.041], [0, 1.1], [0, 0.082], [0, 1.1]]
-        yticks_list = [[0, 2, 4], [0, 0.5, 1], [0, 0.02, 0.04], [0, 0.5, 1], [0, 0.04, 0.08], [0, 0.5, 1]]
-        yticklabels_list = [['0', '2', r'$\geq$' + '4'], ['0', '0.5', '1'], ['0', '0.02', r'$\geq$' + '0.04'], ['0', '0.5', '1'], ['0', '0.04', r'$\geq$' + '0.08'], ['0', '0.5', '1']]
-        ceil_list = [4, None, 0.04, None, 0.08, None]
+        ylim_list = [[0, ymax_MAE_covariance * (4.1 / 4)], [0, 1.1], [0, 0.041], [0, 1.1], [0, ymax_MAE_fitness * (0.082 / 0.08)], [ymin_spearmanr_fitness, 1.1]]
+        yticks_list = [[0, int(ymax_MAE_covariance / 2) if ymax_MAE_covariance > 1 else ymax_MAE_covariance / 2, ymax_MAE_covariance], [0, 0.5, 1], [0, 0.02, 0.04], [0, 0.5, 1], [0, ymax_MAE_fitness / 2, ymax_MAE_fitness], [0, 0.5, 1]]
+        yticklabels_list = [['0', int(ymax_MAE_covariance / 2) if ymax_MAE_covariance > 1 else ymax_MAE_covariance / 2, r'$\geq$' + f'{ymax_MAE_covariance}'], ['0', '0.5', '1'], ['0', '0.02', r'$\geq$' + '0.04'], ['0', '0.5', '1'], ['0', str(ymax_MAE_fitness / 2), r'$\geq$' + str(ymax_MAE_fitness)], ['0', '0.5', '1']]
+        ceil_list = [ymax_MAE_covariance, None, 0.04, None, ymax_MAE_fitness, None]
         floor_list = [None, None, None, None, None, None]
     else:
         ylim_list = [[0, 4.4], [0, 1.1], [0, 0.088] if evaluate_fitness else [0, 0.044], [0, 1.1]]
@@ -1898,18 +1910,18 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
         floor_list = [None, None, None, None]
     if MAE_fitness is not None and Spearmanr_fitness is not None:
         if two_columns:
-            ylabel_list = ['MAE of recovered\ncovariances', LABEL_SPEARMANR_COVARIANCE_FOUR_2, 'MAE of inferred\nselection coefficients', LABEL_SPEARMANR_FOUR_2, 'MAE of inferred\ngenotype fitness', LABEL_SPEARMANR_FITNESS_FOUR_2]
+            ylabel_list = ['MAE of recovered\ncovariances', LABEL_SPEARMANR_COVARIANCE_FOUR_2, 'MAE of inferred\nselection coefficients', LABEL_SPEARMANR_FOUR_2, LABEL_MAE_FITNESS, LABEL_SPEARMANR_FITNESS_FOUR_2]
         else:
-            ylabel_list = ['MAE of recovered\ncovariances', LABEL_SPEARMANR_COVARIANCE_FOUR, 'MAE of inferred\nselection coefficients', LABEL_SPEARMANR_FOUR, 'MAE of inferred\ngenotype fitness', LABEL_SPEARMANR_FITNESS_FOUR]
+            ylabel_list = ['MAE of recovered\ncovariances', LABEL_SPEARMANR_COVARIANCE_FOUR, 'MAE of inferred\nselection coefficients', LABEL_SPEARMANR_FOUR, LABEL_MAE_FITNESS, LABEL_SPEARMANR_FITNESS_FOUR]
     else:
         if use_pearsonr:
             if evaluate_fitness:
-                ylabel_list = ['MAE of recovered\ncovariances', LABEL_PEARSONR_COVARIANCE_FOUR, 'MAE of inferred\ngenotype fitness', LABEL_PEARSONR_FITNESS_FOUR]
+                ylabel_list = ['MAE of recovered\ncovariances', LABEL_PEARSONR_COVARIANCE_FOUR, LABEL_MAE_FITNESS, LABEL_PEARSONR_FITNESS_FOUR]
             else:
                 ylabel_list = ['MAE of recovered\ncovariances', LABEL_PEARSONR_COVARIANCE_FOUR, 'MAE of inferred\nselection coefficients', LABEL_PEARSONR_FOUR]
         else:
             if evaluate_fitness:
-                ylabel_list = ['MAE of recovered\ncovariances', LABEL_SPEARMANR_COVARIANCE_FOUR, 'MAE of inferred\ngenotype fitness', LABEL_SPEARMANR_FITNESS_FOUR]
+                ylabel_list = ['MAE of recovered\ncovariances', LABEL_SPEARMANR_COVARIANCE_FOUR, LABEL_MAE_FITNESS, LABEL_SPEARMANR_FITNESS_FOUR]
             else:
                 ylabel_list = ['MAE of recovered\ncovariances', LABEL_SPEARMANR_COVARIANCE_FOUR, 'MAE of inferred\nselection coefficients', LABEL_SPEARMANR_FOUR]
 
@@ -1971,12 +1983,12 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
         elif row == 0:
             scatter_indices = np.array([_ for _ in range(len(ys)) if method_list[_] not in [TRUE_COV_NAME, 'SL']])
 
-            na_xy_list = [(0, 0.6)]
+            na_xy_list = [(0, 0.6 * (ymax_MAE_covariance / 4))]
             if 'SL' in method_list:
                 na_xy_list.append((len(method_list) - 1, 0.6))
             plt.sca(ax)
             for na_x, na_y in na_xy_list:
-                plt.plot([na_x, na_x], [0, na_y - 0.2], linewidth=SIZELINE, color=BKCOLOR)
+                plt.plot([na_x, na_x], [0, na_y - 0.2 * (ymax_MAE_covariance / 4)], linewidth=SIZELINE, color=BKCOLOR)
                 plt.text(na_x + na_text_offset, na_y, 'NA', fontsize=na_fontsize)
             plt.sca(ax)
 
@@ -2066,6 +2078,85 @@ def plot_figure_performance_on_simulated_data(MAE_cov, Spearmanr_cov, MAE_select
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
 
 
+def plot_scatter_and_line(xs, ys, color=None, s=SIZEDOT, label=None, edgecolors=EDGECOLORS, marker='.', alpha=1, linewidth=SIZELINE):
+    plt.scatter(xs, ys, s=s, marker=marker, color=color, edgecolors=edgecolors, label=label, alpha=alpha)
+    plt.plot(xs, ys, color=color, linewidth=linewidth, alpha=alpha)
+
+
+def plot_figure_performance_on_simulated_data_with_temporal_subsampling(MAE_cov_list, Spearmanr_cov_list, MAE_selection_list, Spearmanr_selection_list, MAE_fitness_list, Spearmanr_fitness_list, sampling_intervals, method_list=METHODS, plot_legend=False, use_pearsonr=False, evaluate_fitness=False, annot=False, ymax_MAE_fitness=0.1, ymin_spearmanr_fitness=0.89, x_log_scale=True, save_file=None):
+    """
+    Comparisons versus existing methods of covariance recovery and selection inference.
+    """
+
+    w       = DOUBLE_COLUMN
+    hshrink = 1.5
+    goldh   = 0.60 * w * hshrink
+    fig     = plt.figure(figsize=(w, goldh))
+
+    box_top   = 0.98
+    box_left  = 0.11
+    box_right = 0.995
+    wspace    = 0.35
+
+    ddy = 0.1 / hshrink
+    dy = 0.39 / hshrink  # Adjusts height of each subplot, & height of white space below the subplots.
+
+    metrics_lists = [MAE_cov_list, Spearmanr_cov_list, MAE_selection_list, Spearmanr_selection_list, MAE_fitness_list, Spearmanr_fitness_list]
+    ylim_list = [[0, 4.1], [0, 1.1], [0, 0.041], [0.25, 0.75], [0, ymax_MAE_fitness * (0.082 / 0.08)], [ymin_spearmanr_fitness, 1.01]]
+    yticks_list = [[0, 2, 4], [0, 0.5, 1], [0, 0.02, 0.04], [0.3, 0.5, 0.7], [0, ymax_MAE_fitness / 2, ymax_MAE_fitness], [0, 0.5, 1] if ymin_spearmanr_fitness == 0 else [0.9, 0.95, 1.0]]
+    yticklabels_list = [['0', '2', r'$\geq$' + '4'], ['0', '0.5', '1'], ['0', '0.02', '0.04'], ['0.25', '0.5', '0.75'], ['0', str(ymax_MAE_fitness / 2), str(ymax_MAE_fitness)], [str(_) for _ in yticks_list[-1]]]
+    ylabel_list = ['MAE of recovered\ncovariances', LABEL_SPEARMANR_COVARIANCE_FOUR_2, 'MAE of inferred\nselection coefficients', LABEL_SPEARMANR_FOUR_2, LABEL_MAE_FITNESS, LABEL_SPEARMANR_FITNESS_FOUR_2]
+
+
+    sublabel_x, sublabel_y = -0.1, 1.02
+    xlabel = 'Time intervals between sampling\n' + DELTA_G + ' (generation)'
+    if x_log_scale:
+        xs = sampling_intervals
+        xlim = [sampling_intervals[0] / 1.5, sampling_intervals[-1] * 1.5]
+        xspine_position, yspine_position =  0, 0
+    else:
+        xs = range(len(sampling_intervals))
+        xlim = [-0.5, len(sampling_intervals) - 0.5]
+        xspine_position, yspine_position =  -0.05, 0.05
+
+    boxes = [dict(left=box_left,
+                  right=box_right,
+                  bottom=box_top-((i+1)*dy)-(i*ddy),
+                  top=box_top-(i*dy)-(i*ddy)) for i in range(len(metrics_lists)//2)]
+    gridspecs = [gridspec.GridSpec(1, 2, wspace=wspace, **box) for box in boxes]
+    axes = []
+    for _ in gridspecs:
+        axes += [plt.subplot(_[0, 1]), plt.subplot(_[0, 0])]
+
+    for i, (metrics_list, ax, ylim, yticks, yticklabels, ylabel) in enumerate(zip(metrics_lists, axes, ylim_list, yticks_list, yticklabels_list, ylabel_list)):
+        plt.sca(ax)
+        for j, method in enumerate(method_list):
+            if i in [0, 1] and method in [TRUE_COV_NAME, 'SL']:
+                continue
+            ys = [metrics[method] for metrics, x in zip(metrics_list, xs)]
+            plot_scatter_and_line(xs, ys, color=METHOD_COLORS[j], label=method, marker=METHOD_MARKERS[j], s=SIZEDOT)
+            # plt.scatter(xs, ys, color=METHOD_COLORS[j], label=method, marker=METHOD_MARKERS[j], s=SMALLSIZEDOT)
+
+        if x_log_scale:
+            plt.xscale('log')
+        plt.ylabel(ylabel, fontsize=SIZELABEL)
+        if i >= 4:
+            plt.xlabel(xlabel, fontsize=SIZELABEL)
+        if i == 2:
+            plt.legend(fontsize=SIZELEGEND, ncol=2)
+        plt.xlim(xlim)
+        plt.ylim(ylim)
+        plt.xticks(ticks=xs, labels=xs)
+        plt.yticks(ticks=yticks, labels=yticklabels, rotation=0)
+        plot_figure_performance_on_simulated_data_helper(ax, xspine_position=xspine_position, yspine_position=yspine_position)
+        if i % 2 == 1:
+            plt.text(x=sublabel_x, y=sublabel_y, s=SUBLABELS[i // 2], transform=ax.transAxes, **DEF_SUBLABELPROPS)
+
+    plt.show()
+    if save_file:
+        fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
+
+
 def plot_figure_clusterization_example_LTEE(pop, clusterization, save_file=None):
     w = SINGLE_COLUMN
     fig = plt.figure(figsize=(w, w))
@@ -2141,7 +2232,7 @@ def get_axes_for_reconstruction_example_LTEE(figsize=None, small_cov_box=False):
 
     box_bottom = box_top - (2*dy)-(1*ddy)
 
-    cov_right = 0.99
+    cov_right = 0.98
     cov_bottom = box_bottom
     cov_top = box_top
 
@@ -2332,45 +2423,134 @@ def plot_figure_reconstruction_example_LTEE(pop, reconstruction, data, directory
     #     plt.subplots_adjust(0.06, 0.15, 0.83, 0.96)
     # else:
     #     plt.subplots_adjust(0.06, 0.15, 0.99, 0.96)
+    # plt.subplots_adjust(0.06, 0.15, 0.99, 0.96)
     plt.show()
     if save_file:
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
 
 
-def plot_figure_reconstruction_example_LTEE_two_periods(pop, rec1, rec2, data, directory=LH.CLUSTERIZATION_OUTPUT_DIR, flattened=False, alpha=0.15, alpha_shared_muts=0.3, plotIntpl=True, ylim=(-0.03, 1.03), linewidth=SIZELINE, linewidth_shared_muts=SIZELINE, bbox_to_anchor_legend=(-0.005, 0.5), annotation_line_size=SIZEANNOTATION, legend_frameon=False, plot_legend_out_on_the_right=True, save_file=None, figsize=None):
+
+def plot_figure_reconstruction_example_LTEE_two_periods(pop, rec1, rec2, data, rec3=None, remove_clade_muts_before_period_start=False, directory=LH.CLUSTERIZATION_OUTPUT_DIR, flattened=False, alpha=0.15, alpha_shared_muts=0.3, plotIntpl=True, ylim=(-0.03, 1.03), linewidth=SIZELINE, linewidth_shared_muts=SIZELINE, bbox_to_anchor_legend=(-0.005, 0.5), annotation_line_size=SIZEANNOTATION, color_shared_muts=True, legend_frameon=False, plot_legend_out_on_the_right=True, verbose=False, save_file=None, figsize=None):
+
+    rec1, rec2 = copy.deepcopy(rec1), copy.deepcopy(rec2)
+    if rec3 is not None:
+        rec3 = copy.deepcopy(rec3)
 
     fig, axes = get_axes_for_reconstruction_example_LTEE(figsize=figsize)
     xlabel, ylabel = 'Generation', 'Frequency'
     xticks = range(0, 60001, 10000)
     tStart, tEnd = 0, 60500
+    clade_colors = {
+        0: LTEE_EXTINCT_COLOR,
+        1: LTEE_MAJOR_FIXED_COLOR,  # Blue
+        2: LTEE_MINOR_FIXED_COLOR,  # Orange
+        3: '#64af31',  # Green
+        4: '#cd7af5',  # Purple
+        5: 'sienna', 
+        6: 'navy',
+        7: 'teal',
+        8: 'aqua',
+        9: 'darkgreen',
+        10: 'goldenrod',
+    }
     if pop in EXCHANGE_FIRST_TWO_CLADES_LTEE and EXCHANGE_FIRST_TWO_CLADES_LTEE[pop]:
-        clade_colors = {
-            0: LTEE_EXTINCT_COLOR,
-            1: LTEE_MINOR_FIXED_COLOR,
-            2: LTEE_MAJOR_FIXED_COLOR,
-            3: '#64af31',
-            4: '#cd7af5',
-        }
-    else:
-        clade_colors = {
-            0: LTEE_EXTINCT_COLOR,
-            1: LTEE_MAJOR_FIXED_COLOR,
-            2: LTEE_MINOR_FIXED_COLOR,
-            3: '#64af31',
-            4: '#cd7af5',
-        }
+        clade_colors[0], clade_colors[1] = clade_colors[1], clade_colors[0]
 
     plt.sca(axes[0])
     ax = plt.gca()
     traj = data[pop]['traj']
     times = LH.TIMES_INTPL
+
+
+    # For latter periods, remove cladeMuts if it emerge before its period
+    def getEmergenceTimes(traj, times, thPresent=0.5):
+        """
+        Computes emergence time of all mutations.
+        """
+        T, L = traj.shape
+        emergenceTimes = np.full(L, -1, dtype=int)
+        for l in range(L):
+            for t in range(T):
+                if traj[t, l] > thPresent:
+                    emergenceTimes[l] = times[t]
+                    break
+        return emergenceTimes
+
+    def removeCladeMutsBeforePeriodStart(rec, period_no, verbose=False):
+        for i, clade in enumerate(rec.cladeMuts):
+            mut_index_to_keep = []
+            for j, l in enumerate(clade):
+                if emergenceTimes[l] < rec.times[0]:
+                    rec.otherMuts.append(l)
+                    if verbose:
+                        print(f'Clade {i + 1} in reconstruction of period {period_no} contains mutation {l} which emerges at {emergenceTimes[l]}, earlier than the period starting time {rec.times[0]}; Now excluded.')
+                else:
+                    mut_index_to_keep.append(j)
+            rec.cladeMuts[i] = [clade[j] for j in mut_index_to_keep]
+
+    def countCladeMuts(rec, period_no):
+        print(f"Period {period_no}", end='\t')
+        for i, clade in enumerate(rec.cladeMuts):
+            print(f"{len(clade)}", end='\t')
+        print()
+
+
+    def removeCladeWithFewMuts(rec, period_no, thNum=30):
+        clade_index_to_keep = []
+        for i, clade in enumerate(rec.cladeMuts):
+            if len(clade) < thNum:
+                for l in clade:
+                    rec.otherMuts.append(l)
+            else:
+                clade_index_to_keep.append(i)
+        rec.cladeMuts = [rec.cladeMuts[i] for i in clade_index_to_keep]
+        rec.numClades = len(rec.cladeMuts)
+
+
+    if remove_clade_muts_before_period_start:
+        if verbose:
+            print(f"Before removing mutations that emerge too early...")
+            countCladeMuts(rec1, 1)
+            countCladeMuts(rec2, 2)
+            if rec3 is not None:
+                countCladeMuts(rec3, 3)
+            # AP.plotTotalCladeFreq(rec3.cladeFreqWithAncestor, traj=traj, times=times, plotClade=False, cladeMuts=rec3.cladeMuts, otherMuts=rec3.otherMuts)
+        emergenceTimes = getEmergenceTimes(traj, times)
+        removeCladeMutsBeforePeriodStart(rec2, 2, verbose=verbose)
+        if rec3 is not None:
+            removeCladeMutsBeforePeriodStart(rec3, 3, verbose=verbose)
+
+        if verbose:
+            print(f"After removing mutations that emerge too early...")
+            countCladeMuts(rec1, 1)
+            countCladeMuts(rec2, 2)
+            if rec3 is not None:
+                countCladeMuts(rec3, 3)
+
+        removeCladeWithFewMuts(rec2, 2)
+        removeCladeWithFewMuts(rec3, 3)
+
+        if verbose:
+            print(f"After removing clades with too few mutations...")
+            countCladeMuts(rec1, 1)
+            countCladeMuts(rec2, 2)
+            if rec3 is not None:
+                countCladeMuts(rec3, 3)
+            # AP.plotTotalCladeFreq(rec3.cladeFreqWithAncestor, traj=traj, times=times, plotClade=False, cladeMuts=rec3.cladeMuts, otherMuts=rec3.otherMuts)
+
+
     identity_to_muts = compare_cladeMuts(rec1, rec2)
+    if rec3 is not None:
+        identity_to_muts_2 = compare_cladeMuts(rec2, rec3)
 
     cladeMuts = []
     for k in range(rec1.numClades):
-        cladeMuts.append(identity_to_muts[k][-1])
+        cladeMuts.append(identity_to_muts[k][-1])  # -1 is other
     for k in range(rec2.numClades):
         cladeMuts.append(identity_to_muts[-1][k])
+    if rec3 is not None:
+        for k in range(rec3.numClades):
+            cladeMuts.append(identity_to_muts_2[-1][k])
 
     sharedMuts = []
     for k1 in range(rec1.numClades):
@@ -2378,6 +2558,8 @@ def plot_figure_reconstruction_example_LTEE_two_periods(pop, rec1, rec2, data, d
             sharedMuts += identity_to_muts[k1][k2]
 
     otherMuts = identity_to_muts[-1][-1]
+    if rec3 is not None:
+        otherMuts = [_ for _ in otherMuts if _ in identity_to_muts_2[-1][-1]]
 
     if plot_legend_out_on_the_right:
         if len(cladeMuts) >= 4:
@@ -2395,19 +2577,38 @@ def plot_figure_reconstruction_example_LTEE_two_periods(pop, rec1, rec2, data, d
             plt.plot(times, traj[:, l], color=clade_colors[0], linewidth=0.5 * linewidth, alpha=alpha)
         else:
             plt.plot(times, traj[:, l], color=LTEE_ANCESTOR_FIXED_COLOR, linewidth=0.5 * linewidth, alpha=alpha)
-    for c in range(1, len(cladeMuts) + 1):
-        for l in cladeMuts[c - 1]:
-            plt.plot(times, traj[:, l], color=clade_colors[c], linewidth=0.5 * linewidth, alpha=alpha)
-    for l in sharedMuts:
-        plt.plot(times, traj[:, l], color=LTEE_INFERRED_SHARED_COLOR, linewidth=linewidth_shared_muts, alpha=alpha_shared_muts, zorder=10)
+    if color_shared_muts:
+        for c in range(1, len(cladeMuts) + 1):
+            for l in cladeMuts[c - 1]:
+                plt.plot(times, traj[:, l], color=clade_colors[c], linewidth=0.5 * linewidth, alpha=alpha)
+        for l in sharedMuts:
+            plt.plot(times, traj[:, l], color=LTEE_INFERRED_SHARED_COLOR, linewidth=linewidth_shared_muts, alpha=alpha_shared_muts, zorder=10)
+    else:
+        for k in range(1, rec1.numClades + 1):
+            for l in rec1.cladeMuts[k - 1]:
+                plt.plot(times, traj[:, l], color=clade_colors[k], linewidth=0.5 * linewidth, alpha=alpha)
+        for k in range(rec2.numClades):
+            for l in rec2.cladeMuts[k]:
+                plt.plot(times, traj[:, l], color=clade_colors[k + rec1.numClades + 1], linewidth=0.5 * linewidth, alpha=alpha)
+        if rec3 is not None:
+            for k in range(rec3.numClades):
+                for l in rec3.cladeMuts[k]:
+                    plt.plot(times, traj[:, l], color=clade_colors[k + rec1.numClades + rec2.numClades + 1], linewidth=0.5 * linewidth, alpha=alpha)
 
     plt.xlim(xlim)
     plt.ylim(ylim)
     plt.xticks(ticks=xticks, labels=[])
 
     labels = [f'Clade {c+1}' for c in range(len(cladeMuts))]
-    handles = [matplotlib.lines.Line2D([], [], color=LTEE_ANCESTOR_FIXED_COLOR, label='Ancestor')] + [matplotlib.lines.Line2D([], [], color=LTEE_MAJOR_FIXED_COLOR, label=labels[0]),
-     matplotlib.lines.Line2D([], [], color=LTEE_MINOR_FIXED_COLOR, label=labels[1])] + [matplotlib.lines.Line2D([], [], color=clade_colors[c + 1], label=labels[c]) for c in range(2, len(cladeMuts))] + [matplotlib.lines.Line2D([], [], color=LTEE_INFERRED_SHARED_COLOR, label='Shared acr-\noss clades')] + [matplotlib.lines.Line2D([], [], color=LTEE_EXTINCT_COLOR, label='Extinct')]
+    handles = [matplotlib.lines.Line2D([], [], color=LTEE_ANCESTOR_FIXED_COLOR, label='Ancestor')]
+    handles += [
+        matplotlib.lines.Line2D([], [], color=LTEE_MAJOR_FIXED_COLOR, label=labels[0]),
+        matplotlib.lines.Line2D([], [], color=LTEE_MINOR_FIXED_COLOR, label=labels[1])]
+    handles += [matplotlib.lines.Line2D([], [], color=clade_colors[c + 1], label=labels[c]) for c in range(2, len(cladeMuts))]
+    if color_shared_muts:
+        handles += [matplotlib.lines.Line2D([], [], color=LTEE_INFERRED_SHARED_COLOR, label='Shared acr-\noss clades')]
+    handles += [matplotlib.lines.Line2D([], [], color=LTEE_EXTINCT_COLOR, label='Extinct')]
+
     plt.legend(handles=handles, fontsize=SIZELEGEND, loc='center left', bbox_to_anchor=bbox_to_anchor_legend, frameon=legend_frameon)
     ax.tick_params(**DEF_TICKPROPS)
     plt.ylabel(ylabel, fontsize=SIZELABEL)
@@ -2544,6 +2745,152 @@ def plot_identity_two_periods(pop, rec1, rec2, data, square=True, cmap=CMAP, red
     plt.setp(ax.spines.values(), **DEF_AXPROPS)
 
 
+def plot_identity_three_periods(pop, rec1, rec2, rec3, data, square=True, cmap=CMAP, reduce_vmax=False, plot_xticks=True, plot_yticks=True, xticklabels_rotation=0, yticklabels_rotation=0, remove_clade_muts_before_period_start=True, verbose=False):
+
+    rec1, rec2, rec3 = copy.deepcopy(rec1), copy.deepcopy(rec2), copy.deepcopy(rec3)
+    ax = plt.gca()
+    traj = data[pop]['traj']
+    times = LH.TIMES_INTPL
+
+    pop_to_vmax = {
+        'm1': 1000, 'm2': 1000, 'm4': 600, 'm5': 90, 'm6': 60, 'p1': 100, 'p3': 500, 'p5': 60
+    }
+
+    num_clades_LTEE = 2
+    clade_LTEE_to_identity_index = get_mapping_clade_LTEE_to_identity_index()
+
+    # For latter periods, remove cladeMuts if it emerge before its period
+    def getEmergenceTimes(traj, times, thPresent=0.5):
+        """
+        Computes emergence time of all mutations.
+        """
+        T, L = traj.shape
+        emergenceTimes = np.full(L, -1, dtype=int)
+        for l in range(L):
+            for t in range(T):
+                if traj[t, l] > thPresent:
+                    emergenceTimes[l] = times[t]
+                    break
+        return emergenceTimes
+
+    def removeCladeMutsBeforePeriodStart(rec, period_no, verbose=False):
+        for i, clade in enumerate(rec.cladeMuts):
+            mut_index_to_keep = []
+            for j, l in enumerate(clade):
+                if emergenceTimes[l] < rec.times[0]:
+                    rec.otherMuts.append(l)
+                    if verbose:
+                        print(f'Clade {i + 1} in reconstruction of period {period_no} contains mutation {l} which emerges at {emergenceTimes[l]}, earlier than the period starting time {rec.times[0]}; Now excluded.')
+                else:
+                    mut_index_to_keep.append(j)
+            rec.cladeMuts[i] = [clade[j] for j in mut_index_to_keep]
+
+    def countCladeMuts(rec, period_no):
+        print(f"Period {period_no}", end='\t')
+        for i, clade in enumerate(rec.cladeMuts):
+            print(f"{len(clade)}", end='\t')
+        print()
+
+
+    def removeCladeWithFewMuts(rec, period_no, thNum=30):
+        clade_index_to_keep = []
+        for i, clade in enumerate(rec.cladeMuts):
+            if len(clade) < thNum:
+                for l in clade:
+                    rec.otherMuts.append(l)
+            else:
+                clade_index_to_keep.append(i)
+        rec.cladeMuts = [rec.cladeMuts[i] for i in clade_index_to_keep]
+        rec.numClades = len(rec.cladeMuts)
+
+    if remove_clade_muts_before_period_start:
+        if verbose:
+            print(f"Before removing mutations that emerge too early...")
+            countCladeMuts(rec1, 1)
+            countCladeMuts(rec2, 2)
+            if rec3 is not None:
+                countCladeMuts(rec3, 3)
+            # AP.plotTotalCladeFreq(rec3.cladeFreqWithAncestor, traj=traj, times=times, plotClade=False, cladeMuts=rec3.cladeMuts, otherMuts=rec3.otherMuts)
+        emergenceTimes = getEmergenceTimes(traj, times)
+        removeCladeMutsBeforePeriodStart(rec2, 2, verbose=verbose)
+        if rec3 is not None:
+            removeCladeMutsBeforePeriodStart(rec3, 3, verbose=verbose)
+
+        if verbose:
+            print(f"After removing mutations that emerge too early...")
+            countCladeMuts(rec1, 1)
+            countCladeMuts(rec2, 2)
+            if rec3 is not None:
+                countCladeMuts(rec3, 3)
+
+        removeCladeWithFewMuts(rec2, 2)
+        removeCladeWithFewMuts(rec3, 3)
+
+        if verbose:
+            print(f"After removing clades with too few mutations...")
+            countCladeMuts(rec1, 1)
+            countCladeMuts(rec2, 2)
+            if rec3 is not None:
+                countCladeMuts(rec3, 3)
+            # AP.plotTotalCladeFreq(rec3.cladeFreqWithAncestor, traj=traj, times=times, plotClade=False, cladeMuts=rec3.cladeMuts, otherMuts=rec3.otherMuts)
+
+
+    identity_to_muts = compare_cladeMuts(rec1, rec2)
+    if rec3 is not None:
+        identity_to_muts_2 = compare_cladeMuts(rec2, rec3)
+
+    cladeMuts = []
+    for k in range(rec1.numClades):
+        cladeMuts.append(identity_to_muts[k][-1])  # -1 is other
+    for k in range(rec2.numClades):
+        cladeMuts.append(identity_to_muts[-1][k])
+    if rec3 is not None:
+        for k in range(rec3.numClades):
+            cladeMuts.append(identity_to_muts_2[-1][k])
+
+    sharedMuts = []
+    for k1 in range(rec1.numClades):
+        for k2 in range(rec2.numClades):
+            sharedMuts += identity_to_muts[k1][k2]
+
+    otherMuts = identity_to_muts[-1][-1]
+    if rec3 is not None:
+        otherMuts = [_ for _ in otherMuts if _ in identity_to_muts_2[-1][-1]]
+
+    num_clades = len(cladeMuts)
+
+    yticks = np.arange(0, num_clades + 1) + 0.5
+    yticklabels_complete = [f'Clade {k}' for k in range(1, num_clades + 1)] + ['Other']
+    xticks = np.arange(0, num_clades_LTEE + 1) + 0.5
+    # xticklabels = ['Major clade', 'Minor clade', 'Ancestral, Basal & Extinct']
+    xticklabels = ['Major', 'Minor', 'Other']
+    identity_counts = np.zeros((num_clades + 1, num_clades_LTEE + 1))
+    for k, muts in enumerate(cladeMuts + [otherMuts + sharedMuts]):
+        for index in muts:
+            site = data[pop]['sites_intpl'][index]
+            clade_LTEE = data[pop]['site_to_clade'][site]
+            identity_index = clade_LTEE_to_identity_index[clade_LTEE]
+            identity_counts[k, identity_index] += 1
+
+    if pop in EXCHANGE_FIRST_TWO_CLADES_LTEE and EXCHANGE_FIRST_TWO_CLADES_LTEE[pop]:
+        temp = np.copy(identity_counts[0])
+        identity_counts[0, :] = identity_counts[1]
+        identity_counts[1, :] = temp
+
+    sns.heatmap(identity_counts, center=0, vmin=0, vmax=pop_to_vmax[pop] if reduce_vmax else None, cmap=cmap, square=square, cbar=False, annot=True, fmt='.0f', annot_kws={"size": SIZEANNOTATION_HEATMAP})
+    if plot_xticks:
+        plt.xticks(ticks=xticks, labels=xticklabels, fontsize=SIZELABEL, rotation=xticklabels_rotation)
+    else:
+        plt.xticks(ticks=[], labels=[], fontsize=SIZELABEL)
+    if plot_yticks:
+        plt.yticks(ticks=yticks, labels=yticklabels_complete, fontsize=SIZELABEL, rotation=yticklabels_rotation)
+    else:
+        plt.yticks(ticks=[], labels=[], fontsize=SIZELABEL)
+
+    ax.tick_params(**DEF_TICKPROPS_HEATMAP)
+    plt.setp(ax.spines.values(), **DEF_AXPROPS)
+
+
 def plot_figure_reconstruction_example_LTEE_two_periods_alternative(pop, rec1, rec2, data, directory=LH.CLUSTERIZATION_OUTPUT_DIR, flattened=False, alpha=0.15, alpha_shared_muts=0.3, plotIntpl=True, ylim=(-0.03, 1.03), linewidth=SIZELINE, linewidth_shared_muts=SIZELINE, bbox_to_anchor_legend=(-0.005, 0.5), annotation_line_size=SIZEANNOTATION, legend_frameon=False, plot_legend_out_on_the_right=True, save_file=None, figsize=None):
 
     fig, axes = get_axes_for_reconstruction_example_LTEE(figsize=figsize, small_cov_box=True)
@@ -2552,11 +2899,12 @@ def plot_figure_reconstruction_example_LTEE_two_periods_alternative(pop, rec1, r
     tStart, tEnd = 0, 60500
     if pop in EXCHANGE_FIRST_TWO_CLADES_LTEE and EXCHANGE_FIRST_TWO_CLADES_LTEE[pop]:
         clade_colors = {
-            0: LTEE_EXTINCT_COLOR,
-            1: LTEE_MINOR_FIXED_COLOR,
-            2: LTEE_MAJOR_FIXED_COLOR,
-            3: '#64af31',
-            4: '#cd7af5',
+            0: LTEE_EXTINCT_COLOR,  # Grey
+            1: LTEE_MINOR_FIXED_COLOR,  # Blue
+            2: LTEE_MAJOR_FIXED_COLOR,  # Orange
+            3: '#64af31',  # Green
+            4: '#cd7af5',  # Purple
+            5: 'red',
         }
     else:
         clade_colors = {
@@ -2565,6 +2913,7 @@ def plot_figure_reconstruction_example_LTEE_two_periods_alternative(pop, rec1, r
             2: LTEE_MINOR_FIXED_COLOR,
             3: '#64af31',
             4: '#cd7af5',
+            5: 'red',
         }
 
     plt.sca(axes[0])
@@ -2715,7 +3064,7 @@ def plot_identity_comparison(rec1, rec2, identity_to_muts=None, square=True,
     plt.ylabel('Clades inferred in first period', fontsize=SIZELABEL)
 
 
-def plot_dxdx_heatmap(dxdx, groups, as_subplot=False, ylabel_x=-0.21, alpha=0.5, grid_line_offset=0, cbar_shrink=1, xtick_distance=40, figsize=(4, 3), rasterized=True, ylabel_prefix="Group", plot_ylabel=False, plot_top_axis=False, save_file=None):
+def plot_dxdx_heatmap(dxdx, groups, as_subplot=False, ylabel_x=-0.21, alpha=0.5, grid_line_offset=0, cbar_shrink=1, cbar_label="Value in " + r"$D$" + " matrix", xtick_distance=40, figsize=(4, 3), rasterized=True, ylabel_prefix="Group", plot_ylabel=False, plot_top_axis=False, save_file=None):
 
     L = len(dxdx)
     if L > 8000:
@@ -2735,6 +3084,7 @@ def plot_dxdx_heatmap(dxdx, groups, as_subplot=False, ylabel_x=-0.21, alpha=0.5,
     cbar = heatmap.collections[0].colorbar
     # cbar.ax.tick_params(labelsize=SIZELABEL, length=2, color=)
     cbar.ax.tick_params(**DEF_TICKPROPS_COLORBAR)
+    cbar.set_label(cbar_label, fontsize=SIZELABEL)
     xticklabels = np.arange(0, L + xtick_distance // 2, xtick_distance)
     xticks = [l for l in xticklabels]
     ticks, ylabels, group_sizes = get_ticks_and_labels_for_clusterization(groups, name=ylabel_prefix, note_size=True)
@@ -2835,7 +3185,7 @@ def plot_figure_identity_example_LTEE(pop, reconstruction, data, save_file=None)
         fig.savefig(save_file, facecolor=fig.get_facecolor(), **DEF_FIGPROPS)
 
 
-def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arrangement=True, mark_nonclonal_with_rectangle=False, plot_ylabel_for_all_second_row=True, mark_nonclonal_with_horizontal_text=True, mark_nonclonal_with_vertical_text=False, nRow=2, nCol=4, wspace=0.3, hspace=0.3, square=False, reduce_vmax=False, ticklabels_rotation=0, title_prefix='', plot_single_column=False, plot_sublabel=True, save_file=None, rec1=None, rec2=None):
+def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arrangement=True, mark_nonclonal_with_rectangle=False, plot_ylabel_for_all_second_row=True, mark_nonclonal_with_horizontal_text=True, mark_nonclonal_with_vertical_text=False, nRow=2, nCol=4, wspace=0.3, hspace=0.3, square=False, reduce_vmax=False, ticklabels_rotation=0, title_prefix='', plot_single_column=False, plot_sublabel=True, save_file=None, rec1_p3=None, rec2_p3=None, rec1_m3=None, rec2_m3=None, rec3_m3=None):
     w = SINGLE_COLUMN if plot_single_column else DOUBLE_COLUMN
 
     if custom_arrangement:
@@ -2911,7 +3261,7 @@ def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arran
         for i, pop in enumerate(populations_3_clades):
             ax = plt.subplot(srl_gs[0, i])
             if pop == 'p3':
-                plot_identity_two_periods(pop, rec1, rec2, data, square=square, reduce_vmax=reduce_vmax, plot_xticks=True, plot_yticks=True if plot_ylabel_for_all_second_row else (i == 0), xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
+                plot_identity_two_periods(pop, rec1_p3, rec2_p3, data, square=square, reduce_vmax=reduce_vmax, plot_xticks=True, plot_yticks=True if plot_ylabel_for_all_second_row else (i == 0), xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
             else:
                 plot_identity_helper(pop, reconstructions[pop], data, square=square, reduce_vmax=reduce_vmax, plot_xticks=True, plot_yticks=True if plot_ylabel_for_all_second_row else (i == 0), xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
             plt.title(f"{title_prefix}{pop}", fontsize=SIZELABEL)
@@ -2928,7 +3278,10 @@ def plot_figure_identities_LTEE(populations, reconstructions, data, custom_arran
 
         for i, pop in enumerate(populations_4_clades):
             ax = plt.subplot(srr_gs[0, i])
-            plot_identity_helper(pop, reconstructions[pop], data, square=square, cmap=CMAP_NONCLONAL, reduce_vmax=reduce_vmax, plot_xticks=True, plot_yticks=True if plot_ylabel_for_all_second_row else (i == 0), xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
+            if pop == 'm3':
+                plot_identity_three_periods(pop, rec1_m3, rec2_m3, rec3_m3, data, square=square, cmap=CMAP_NONCLONAL, reduce_vmax=reduce_vmax, plot_xticks=True, plot_yticks=True if plot_ylabel_for_all_second_row else (i == 0), xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
+            else:
+                plot_identity_helper(pop, reconstructions[pop], data, square=square, cmap=CMAP_NONCLONAL, reduce_vmax=reduce_vmax, plot_xticks=True, plot_yticks=True if plot_ylabel_for_all_second_row else (i == 0), xticklabels_rotation=ticklabels_rotation, yticklabels_rotation=ticklabels_rotation)
             plt.title(f"{title_prefix}{pop}", fontsize=SIZELABEL)
 
         if mark_nonclonal_with_rectangle:
@@ -3022,7 +3375,7 @@ def get_axes_for_performance_on_real_data(plot_single_column=True, perf_box_sque
         dy = 0.23  # Adjusts height of each subplot. Also adjusts height of white space below the subplots.
         # Height of heatmap = cov_top - cov_bottom
         # Width of heatmap = (cov_top - cov_bottom) * (h / w)
-        cov_right = 0.99
+        cov_right = 0.98
         cov_bottom = box_bottom
         cov_top = box_top
 
@@ -3066,7 +3419,7 @@ def get_allele_colors(num_alleles):
     return allele_colors
 
 
-def plot_cov_heatmap(reconstruction, ylabel_x=-0.21, alpha=0.5, grid_line_offset=0, cbar_shrink=1, xtick_distance=40):
+def plot_cov_heatmap(reconstruction, ylabel_x=-0.21, alpha=0.5, grid_line_offset=0, cbar_shrink=1, xtick_distance=40, cbar_label="Value in recovered integrated covariance matrix"):
     ax = plt.gca()
     int_cov = reconstruction.recoveredIntCov
     clades = [reconstruction.otherMuts] + reconstruction.cladeMuts
@@ -3080,6 +3433,8 @@ def plot_cov_heatmap(reconstruction, ylabel_x=-0.21, alpha=0.5, grid_line_offset
     cbar = heatmap.collections[0].colorbar
     # cbar.ax.tick_params(labelsize=SIZELABEL, length=2, color=)
     cbar.ax.tick_params(**DEF_TICKPROPS_COLORBAR)
+    cbar.set_label(cbar_label, fontsize=SIZELABEL)
+
     ticks, ylabels, group_sizes = get_ticks_and_labels_for_clusterization(clades, name='Clade', note_size=True)
     plot_ticks_and_labels_for_clusterization(ticks, ylabels, group_sizes, ylabel_x=ylabel_x)
     ax.hlines([_ + grid_line_offset for _ in ticks], *ax.get_xlim(), color=GREY_COLOR_HEX, alpha=alpha, linewidth=SIZELINE * 1.2)

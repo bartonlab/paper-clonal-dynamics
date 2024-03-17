@@ -19,6 +19,7 @@ import analyze_and_plot as AP
 import reconstruct_clades as RC
 import infer_fitness as IF
 import print_info as PI
+import simulation_helper as SH
 
 DATA_DIR = './data'
 SIMULATION_DIR = './data/simulation'
@@ -30,11 +31,12 @@ LOLIPOP_OUTPUT_DIR_REL = '../output'
 LOLIPOP_PARSED_OUTPUT_DIR = './data/lolipop/parsed_output'
 
 
-def loadSimulation(n, simulation_directory=SIMULATION_DIR, meanS=0.03, stdS=0.01, minS=0.01, maxS=0.04, uniform=False, mu=2e-4, threshold=0.05):
-    if uniform:
-        filename = f'{simulation_directory}/simulation_output_min={minS}_max={maxS}_mu={mu}_th={threshold}_n={n}.npz'
-    else:
-        filename = f'{simulation_directory}/simulation_output_mean={meanS}_std={stdS}_mu={mu}_th={threshold}_n={n}.npz'
+def loadSimulation(p, n, simulation_directory=SIMULATION_DIR, meanS=0.03, stdS=0.01, minS=0.01, maxS=0.04, uniform=False, mu=2e-4, threshold=0.05):
+    filename = f'{simulation_directory}/simulation_output_{SH.parse_filename_postfix(p, n)}.npz'
+    # if uniform:
+    #     filename = f'{simulation_directory}/simulation_output_min={minS}_max={maxS}_mu={mu}_th={threshold}_n={n}.npz'
+    # else:
+    #     filename = f'{simulation_directory}/simulation_output_mean={meanS}_std={stdS}_mu={mu}_th={threshold}_n={n}.npz'
     dic = np.load(filename, allow_pickle=True)
     return dic
 
@@ -70,7 +72,7 @@ def loadParsedOutput(file):
     return data
 
 
-def parseOutput(directory, filename, times=None, sep='\t', saveFile=None):
+def parseOutput(directory, filename, times=None, sep='\t', saveFile=None, dg=1):
     """
     Parse all output to be used later.
     """
@@ -79,16 +81,16 @@ def parseOutput(directory, filename, times=None, sep='\t', saveFile=None):
     trajectoriesTable = pd.read_csv(directory + '/tables' + f'/{filename}.trajectories.tsv', sep=sep)
     edgesTable = pd.read_csv(directory + '/tables' + f'/{filename}.edges.tsv', sep=sep)
     if times is None:
-        times = [int(t) for t in list(genotypesTable.columns)[1:-1]]
+        times = np.array([int(t) for t in list(genotypesTable.columns)[1:-1]]) * dg
     # else:
     #     print(f'Using given times: ', times)
     #     print(f'Times in table: ', [int(t) for t in list(genotypesTable.columns)[1:-1]])
 
-    genotypeToMembers, memberToGenotype = parseGenotypeMemberMapping(genotypesTable)
+    traj, members = parseAlleleTrajectories(trajectoriesTable)
+    genotypeToMembers, memberToGenotype = parseGenotypeMemberMapping(genotypesTable, members)
     parentToGenotype, genotypeToParent = parseEdges(edgesTable)
     genoTraj = parseGenotypeTrajectories(populationsTable)
     cladeTraj = computeCladeTrajectories(genoTraj, parentToGenotype)
-    traj = parseAlleleTrajectories(trajectoriesTable)
     reconstructedTraj = computeReconstructedTraj(cladeTraj, genotypeToMembers, parentToGenotype)
 
     data = {'genotypeToMembers': genotypeToMembers, 'memberToGenotype': memberToGenotype, 'genoTraj': genoTraj, 'cladeTraj': cladeTraj, 'traj': traj, 'reconstructedTraj': reconstructedTraj, 'times': times, 'parentToGenotype': parentToGenotype, 'genotypeToParent': genotypeToParent, }
@@ -101,21 +103,17 @@ def parseOutput(directory, filename, times=None, sep='\t', saveFile=None):
     return data
 
 
-def parseGenotypeMemberMapping(df):
+def parseGenotypeMemberMapping(df, allMembers):
     G = len(df) + 1  # This table does not have a row for genotype-0, hence add one here.
-    allMembers = set()
-    for i, row in df.iterrows():
-        members = parseMembersList(row['members'])
-        allMembers.update(members)
-    if 0 not in allMembers:
-        shiftToZeroIndexed = True
-    else:
-        shiftToZeroIndexed = False
+    originalMemberToShiftedMember = {
+        member: i for i, member in enumerate(sorted(list(allMembers)))
+    }
     genotypeToMembers = [[] for g in range(G)]
     for i, row in df.iterrows():
         g = parseGenotypeIndex(row['Genotype'])
-        genotypeToMembers[g] = parseMembersList(row['members'], shiftToZeroIndexed=shiftToZeroIndexed)
-    L = np.sum([len(members) for members in genotypeToMembers])
+        members = parseMembersList(row['members'])
+        genotypeToMembers[g] = [originalMemberToShiftedMember[_] for _ in members]
+    L = len(allMembers)
     memberToGenotype = [None for l in range(L)]
     for g, members in enumerate(genotypeToMembers):
         for member in members:
@@ -124,10 +122,7 @@ def parseGenotypeMemberMapping(df):
 
 
 def parseMembersList(members, shiftToZeroIndexed=False):
-    if shiftToZeroIndexed:
-        return [int(i) - 1 for i in str(members).strip().split('|')]
-    else:
-        return [int(i) for i in str(members).strip().split('|')]
+    return [int(i) for i in str(members).strip().split('|')]
 
 
 def parseGenotypeTrajectories(df):
@@ -154,20 +149,26 @@ def parseGenotypeIndex(identity):
 
 def parseAlleleTrajectories(df):
     generations = [_ for _ in list(df.columns) if _.isdigit()]
-    if 0 not in set(df['Trajectory']):
-        shiftToZeroIndexed = True
-    else:
-        shiftToZeroIndexed = False
-    L = len(df)
+    allMembers = set()
+    for i, row in df.iterrows():
+        # if row['genotype'] == 'rejected':
+        #     continue
+        member = int(row['Trajectory'])
+        allMembers.add(member)
+    originalMemberToShiftedMember = {
+        member: i for i, member in enumerate(sorted(list(allMembers)))
+    }
+    # L = len(df[df['genotype']!='rejected'])
+    L = len(allMembers)
     T = len(generations)
     traj = np.zeros((T, L), dtype=float)
     for i, row in df.iterrows():
-        l = row['Trajectory']
-        if shiftToZeroIndexed:
-            l -= 1
+        if row['genotype'] == 'rejected':
+            continue
+        l = originalMemberToShiftedMember[row['Trajectory']]
         for t, generation in enumerate(generations):
             traj[t, l] = row[generation]
-    return traj
+    return traj, allMembers
 
 
 def computeCladeTrajectories(genoTraj, parentToGenotype):
@@ -360,8 +361,33 @@ def isCorrelated(g_i, g_j, genotypeToParent, debug=False):
     """
     Return if genotype i and genotype j are correlated (linked), e.g., one arises from the other.
     """
+    if g_i is None or g_j is None:
+        return False
     if g_i == g_j:
         return True
+
+    # ps_i = [g_i]
+    # p_i = g_i
+    # if debug:
+    #     print('Tracing back from genotype ', p_i, end='->')
+    # while p_i in genotypeToParent:
+    #     p_i = genotypeToParent[p_i]
+    #     ps_i.append(p_i)
+    #     if debug:
+    #         print(p_i, end='->')
+    #     if p_i == g_j:
+    #         return True
+
+    # p_j = g_j
+    # if debug:
+    #     print('\nTracing back from genotype ', p_j, end='->')
+    # while p_j in genotypeToParent:
+    #     p_j = genotypeToParent[p_j]
+    #     if debug:
+    #         print(p_j, end='->')
+    #     if p_j in ps_i:
+    #         return True
+
     p_i = g_i
     if debug:
         print('Tracing back from genotype ', p_i, end='->')
@@ -407,17 +433,18 @@ def computeFitness(traj, selection, initial_fitness=1, normalizeFitness=False):
     return fitness
 
 
-def inferForSimulations(num_trials=40, meanS=0.03, stdS=0.01, minS=0.01, maxS=0.04, uniform=False, mu=2e-4, threshold=0.05, muForInference=1e-6, regularization=1, lolipop_parsed_output_dir='./test_data/lolipop/parsed_output', simulation_output_dir='./data/simulation_output'):
+def inferForSimulations(p, num_trials=40, meanS=0.03, stdS=0.01, minS=0.01, maxS=0.04, uniform=False, mu=2e-4, threshold=0.05, muForInference=1e-6, regularization=1, lolipop_parsed_output_dir='./test_data/lolipop/parsed_output', simulation_output_dir='./data/simulation_output'):
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
     intCov_all, selection_all, fitness_all, intCovError_all = [], [], [], []
     for n in np.arange(num_trials):
-        if uniform:
-            filename = f'simulation_traj_min={minS}_max={maxS}_mu={mu}_th={threshold}_n={n}'
-        else:
-            filename = f'simulation_traj_mean={meanS}_std={stdS}_mu={mu}_th={threshold}_n={n}'
-        file = f'{lolipop_parsed_output_dir}/{filename}.npz'
+        # if uniform:
+        #     filename = f'simulation_traj_min={minS}_max={maxS}_mu={mu}_th={threshold}_n={n}'
+        # else:
+        #     filename = f'simulation_traj_mean={meanS}_std={stdS}_mu={mu}_th={threshold}_n={n}'
+        file = f'{lolipop_parsed_output_dir}/simulation_traj_{SH.parse_filename_postfix(p, n)}.npz'
         data = loadParsedOutput(file)
         intCov, selection, fitness = inferencePipeline(data, mu=muForInference, regularization=regularization)
-        dic = loadSimulation(n, meanS=meanS, stdS=stdS, minS=minS, maxS=maxS, uniform=uniform, mu=mu, simulation_directory=simulation_output_dir)
+        dic = loadSimulation(p, n, meanS=meanS, stdS=stdS, minS=minS, maxS=maxS, uniform=uniform, mu=mu, simulation_directory=simulation_output_dir)
         intCovError = intCov - dic['cov']
 
         intCov_all.append(intCov)

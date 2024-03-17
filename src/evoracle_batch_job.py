@@ -29,33 +29,41 @@ def main(verbose=False):
     parser = argparse.ArgumentParser(description='Infer genotypes and genotype trajectories with Evoracle.')
     parser.add_argument('-o', type=str, default=None, help="prefix of output .npz file (filename is arg_list.o + f'_truncate=*_window=*.npz')")
     parser.add_argument('-n', type=int, default=0, help='index of trial')
+    parser.add_argument('--postfix', type=str, default=None, help="postfix of simulation file (filename is simulation_output_{postfix}.npz")
     parser.add_argument('--save_geno_traj', action='store_true', default=False, help='whether or not save inferred genotype trajectories.')
 
     arg_list = parser.parse_args(sys.argv[1:])
 
     n = arg_list.n
+    postfix = arg_list.postfix
+    if postfix is None:
+        p = SH.Params()
+        postfix = SH.parse_filename_postfix(p, n)
 
     # Load simulation
-    p = SH.Params()
-    sim = SH.load_simulation(p, n, directory=SIMULATION_DIR_REL)
+    # p = SH.Params()
+    # sim = SH.load_simulation(p, n, directory=SIMULATION_DIR_REL)
+    sim = SH.load_simulation_by_postfix(postfix, directory=SIMULATION_DIR_REL)
     traj = sim['traj']
+    times = sim['times']
 
     # Save traj as input for Evoracle
-    directory = f'{EVORACLE_DIR_SIMULATION_REL}/n={n}'
-    obsreads_filename = f'simulation_n={n}_obsreads.csv'
+    directory = f'{EVORACLE_DIR_SIMULATION_REL}/{postfix}'
+    obsreads_filename = f'simulation_{postfix}_obsreads.csv'
     obsreads_input = f'{directory}/{obsreads_filename}'
     DP.save_traj_for_evoracle(traj, obsreads_input)
 
     # Run Evoracle
-    proposed_genotypes_output = f'{directory}/proposed_genotypes.csv'
+    proposed_genotypes_output = f'{directory}/proposed_genotypes_{postfix}.csv'
     obs_reads_df = DP.parse_obs_reads_df(obsreads_input)
     evoracle.propose_gts_and_infer_fitness_and_frequencies(obs_reads_df, proposed_genotypes_output, directory)
-    results = DP.parse_evoracle_results(obsreads_filename, directory, save_geno_traj=arg_list.save_geno_traj)
+    print(f'dg={times[1] - times[0]}')
+    results = DP.parse_evoracle_results(obsreads_filename, directory, times=times, save_geno_traj=arg_list.save_geno_traj)
 
     if arg_list.o is not None:
         output = arg_list.o
     else:
-        output = f'evoracle_parsed_output_n={n}.npz'
+        output = f'evoracle_parsed_output_{postfix}.npz'
 
     np.savez_compressed(f'{EVORACLE_DIR_SIMULATION_PARSED_OUTPUT_REL}/{output}', **results)
 

@@ -26,7 +26,6 @@ HAPLOSEP_OUTPUT_DIR = './data/haploSep/output'
 SIMULATION_PARAMS = {
     'mutation_rate': 0,
     'linear_reg': 1,
-    'times': None,
 }
 
 
@@ -209,11 +208,10 @@ def parse_obs_reads_df(file):
     return df
 
 
-def parse_evoracle_results(obs_reads_file, output_directory, params=SIMULATION_PARAMS, save_geno_traj=True, compute_genotype_fitness=False, linear_reg=None):
+def parse_evoracle_results(obs_reads_file, output_directory, times=None, params=SIMULATION_PARAMS, save_geno_traj=True, compute_genotype_fitness=False, linear_reg=None):
     mu = params['mutation_rate']
     if linear_reg is None:
         linear_reg = params['linear_reg']
-    times = params['times']
 
     df_traj = pd.read_csv(f'{output_directory}/{obs_reads_file}')
     traj = parse_evoracle_traj(df_traj)

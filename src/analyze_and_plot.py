@@ -592,7 +592,7 @@ def plotTrajComparisonSideBySide(traj, estTraj, times=None, figsize=(10, 8), fon
     plt.show()
 
 
-def plotCovarianceComparison(trueCov, estCov, figsize=(10, 3.3), fontsize=15, titles=['true', 'est', 'error']):
+def plotCovarianceComparison(trueCov, estCov, cbar=False, as_subplot=False, figsize=(10, 3.3), fontsize=15, titles=['true', 'est', 'error']):
     """Plots a figure comparing true and estimated integrated covariance matrix, as well as their difference."""
 
     fig, axes = plt.subplots(1, 3, figsize=figsize)
@@ -606,10 +606,14 @@ def plotCovarianceComparison(trueCov, estCov, figsize=(10, 3.3), fontsize=15, ti
     for i, cov in enumerate(cov_list):
         plt.sca(axes[i])
         ax = plt.gca()
-        plot_cbar = (i == 0)
+        plot_cbar = (i == 0) and cbar
         sns.heatmap(cov, center=0, vmin=vmin - 5, vmax=vmax + 5, cmap=sns.diverging_palette(145, 300, as_cmap=True), square=True, cbar=plot_cbar, cbar_ax=cbar_ax if plot_cbar else None, cbar_kws=dict(ticks=cbar_ticks, orientation="horizontal"))
-        plt.title(titles[i], fontsize=fontsize)
-        if plot_cbar:
+        if titles[i] == 'error':
+            title = titles[i] + f' MAE=%.2f' % MAE(trueCov, estCov)
+        else:
+            title = titles[i]
+        plt.title(title, fontsize=fontsize)
+        if plot_cbar and cbar_ax:
             cbar_ax.tick_params(labelsize=SIZELABEL)
         ax.tick_params(**DEF_TICKPROPS_HEATMAP, labelsize=10)
 
@@ -644,6 +648,93 @@ def plotSelectionComparison(trueSelection, selectionByTrueCov, estSelection, err
             plt.ylabel(ylabel, fontsize=fontsize)
         spearmanr, _ = stats.spearmanr(x, estSelection)
         plt.title(f'MAE=%.4f, spearmanr=%.2f' % (MAE(x, estSelection), spearmanr))
+    plt.show()
+
+
+def plotCovarianceAndSelectionComparison(trueCov, estCov, trueSelection, selectionByTrueCov, estSelection, error=None, evaluate_true_cov=False, compare_eigenvalues=False, plot_hist=False, cbar=False, ylabel='inferred selection', annot=False, figsize=(20, 3.3), fontsize=12, suptitle_y=1.025, titles=['true', 'est', 'error'], suptitle=""):
+    fig, axes = plt.subplots(1, 5 + compare_eigenvalues, figsize=figsize)
+    L = len(trueSelection)
+    cov_list = [trueCov, estCov, estCov - trueCov]
+    vmin = min(np.min(cov_list[0]), np.min(cov_list[1]))
+    vmax = max(np.max(cov_list[0]), np.max(cov_list[1]))
+    cbar_ax = fig.add_axes(rect=[.128, .175, .773, .02])  # color bar on the bottom, rect=[left, bottom, width, height]
+    cbar_ticks = np.arange(int(vmin/5)*5, int(vmax/5)*5, 50)
+    cbar_ticks -= cbar_ticks[np.argmin(np.abs(cbar_ticks))]
+    for i, cov in enumerate(cov_list):
+        plt.sca(axes[i])
+        ax = plt.gca()
+        plot_cbar = (i == 0) and cbar
+        sns.heatmap(cov, center=0, vmin=vmin - 5, vmax=vmax + 5, cmap=sns.diverging_palette(145, 300, as_cmap=True), square=True, cbar=plot_cbar, cbar_ax=cbar_ax if plot_cbar else None, cbar_kws=dict(ticks=cbar_ticks, orientation="horizontal"))
+        if titles[i] == 'error':
+            title = titles[i] + f' MAE=%.2f max_abs_diff=%.2f' % (MAE(trueCov, estCov), np.max(np.abs(trueCov - estCov)))
+        else:
+            title = titles[i]
+        plt.title(title, fontsize=fontsize)
+        if plot_cbar and cbar_ax:
+            cbar_ax.tick_params(labelsize=SIZELABEL)
+        ax.tick_params(**DEF_TICKPROPS_HEATMAP, labelsize=10)
+
+    if compare_eigenvalues:
+        plt.sca(axes[len(cov_list)])
+        eigenvalues_true, eigenvectors_true = np.linalg.eig(trueCov)
+        eigenvalues_est, eigenvectors_est = np.linalg.eig(estCov)
+        num_bins = len(trueCov)
+        vmin = min(np.min(eigenvalues_true), np.min(eigenvalues_est))
+        vmax = max(np.max(eigenvalues_true), np.max(eigenvalues_est))
+        if plot_hist:
+            interval = (vmax - vmin) / num_bins
+            bins = np.arange(vmin, vmax + interval, interval)
+            plt.hist(eigenvalues_true, bins=bins, label='true', alpha=0.6)
+            plt.hist(eigenvalues_est, bins=bins, label='est', alpha=0.6)
+            plt.legend()
+            plt.ylabel('Count')
+            plt.xlabel('Eigenvalues')
+        else:
+            xlim = ylim = (vmin / 2, vmax * 2)
+            plt.scatter(eigenvalues_true, eigenvalues_est)
+            plt.xlabel(f'Eigenvalue of trueCov')
+            plt.ylabel(f'Eigenvalue of estCov')
+            plt.plot([vmin, vmax], [vmin, vmax], linestyle='dashed', color='grey')
+            plt.yscale('log')
+            plt.xscale('log')
+            plt.xlim(xlim)
+            plt.ylim(ylim)
+
+
+    minS, maxS = min(np.min(trueSelection), np.min(estSelection)), max(np.max(trueSelection), np.max(estSelection))
+    annot_offset = (maxS - minS) / 60
+    xlim = ylim = (minS - 0.01, maxS + 0.01)
+
+    if evaluate_true_cov:
+        xlabels = ['true selection', 'true selection']
+        ylabels = [ylabel, 'selection inferred by true cov']
+        xs = [trueSelection, trueSelection]
+        ys = [estSelection, selectionByTrueCov]
+    else:
+        xlabels = ['true selection', 'selection inferred by true cov']
+        ylabels = [ylabel, ylabel]
+        xs = [trueSelection, selectionByTrueCov]
+        ys = [estSelection, estSelection]
+    for i, (x, y) in enumerate(zip(xs, ys)):
+        plt.sca(axes[i + len(cov_list) + compare_eigenvalues])
+        at_left = i == 0
+        for l in range(L):
+            plt.scatter([x[l]], [y[l]], color=COLORS[l%len(COLORS)])
+            if annot:
+                plt.text(x[l], y[l] + annot_offset, f'{l}', fontsize=fontsize, color=COLORS[l%len(COLORS)])
+        plt.xlim(xlim)
+        plt.ylim(ylim)
+        plt.plot([minS, maxS], [minS, maxS], linestyle='dashed', color='grey')
+        plt.xlabel(xlabels[i], fontsize=fontsize)
+        if at_left or evaluate_true_cov:
+            plt.ylabel(ylabels[i], fontsize=fontsize)
+        spearmanr, _ = stats.spearmanr(x, y)
+        plt.title(f'MAE=%.4f, spearmanr=%.2f' % (MAE(x, y), spearmanr), fontsize=fontsize)
+
+    if suptitle:
+        plt.suptitle(suptitle, fontsize=fontsize, y=suptitle_y)
+    plt.subplots_adjust(wspace=0.3)
+    plt.show()
 
 
 def plotFitnessComparison(fitness_list, times_list=None, times=None, figsize=(10, 3.3), fontsize=15, title='fitness trajectories', asSubplot=False, labels=['true', 'by_true_cov', 'by_recovered_cov', 'by_est_cov'], colors=[3, 0, 1, 4, 2], plotLegend=True, plotXticks=True, plotYticks=True, ylim=None):
@@ -733,9 +824,9 @@ def plotWindowComparison(winToRes, figsize=(10, 2.5), fontsize=15, alpha=0.5):
     plt.show()
 
 
-def plotCladeFreq(cladeFreq, plotLegend=True, plotShow=True, fontsize=15, title='Clade frequencey'):
+def plotCladeFreq(cladeFreq, plotLegend=True, plotShow=True, fontsize=15, alpha=1, start_from_clade_1=True, title='Clade frequencey'):
     for c in range(len(cladeFreq)):
-        plt.scatter(range(len(cladeFreq[c])), cladeFreq[c], s=3, label=f"clade {c + 1}")
+        plt.scatter(range(len(cladeFreq[c])), cladeFreq[c], s=3, label=f"clade {c + 1}" if start_from_clade_1 else f"clade {c}", alpha=alpha)
     plt.ylim(-0.03, 1.03)
     plt.title(title, fontsize=fontsize)
     if plotLegend:
@@ -766,7 +857,7 @@ def plotTotalCladeFreq(totalCladeFreq, times=None, cladeMuts=None, otherMuts=Non
         if plotClade:
             plt.plot(times, totalCladeFreq[:, c], label=f'Clade {c}', color=colors[c], linestyle='solid', linewidth=linewidth)
         # plt.scatter(times, totalCladeFreq[:, c], s=3, label=f"clade {c}", color=COLORS[c - 1])
-        if cladeMuts is not None:
+        if cladeMuts is not None and c - 1 < len(cladeMuts):
             for l in cladeMuts[c - 1]:
                 if someMuts is None or l in someMuts:
                     plt.plot(times, traj[:, l], color=colors[c], linewidth=0.5 * linewidth, alpha=alpha)

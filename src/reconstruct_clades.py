@@ -1170,7 +1170,7 @@ class CladeReconstruction:
         T_nonExtended = T - 1
         # A step specifically for Lenski's LTEE data, where mutantReads without complete time points are extended with the last available value.
         if self.hasInterpolation:
-            while self.traj[T_nonExtended, l] == self.traj[T_nonExtended - 1, l] and self.traj[T_nonExtended, l] < 1 and self.traj[T_nonExtended, l] > 0:
+            while T_nonExtended > 0 and self.traj[T_nonExtended, l] == self.traj[T_nonExtended - 1, l] and self.traj[T_nonExtended, l] < 1 and self.traj[T_nonExtended, l] > 0:
                 T_nonExtended -= 1
         if self.mutantReads is not None and self.readDepths is not None:
             for k in range(K):
@@ -1723,7 +1723,7 @@ class CladeReconstruction:
             if self.debug:
                 print(f'{bcolors.OKBLUE}Default smooth window: ', defaultSmoothWindow)
                 print(f'{bcolors.OKBLUE}Smooth window: ', smoothWindow)
-            tStart, tEnd = bestSplitTime - smoothWindow // 2, bestSplitTime + smoothWindow // 2
+            tStart, tEnd = max(0, bestSplitTime - smoothWindow // 2), min(bestSplitTime + smoothWindow // 2, self.T)
             for t in range(tStart, tEnd):
                 totalFreq = self.cladeFreqWithAncestor[t, k1] + self.cladeFreqWithAncestor[t, k2]
                 sigMutTotalFreq = self.traj[t, sigMut1] + self.traj[t, sigMut2]
@@ -2045,6 +2045,9 @@ class CladeReconstruction:
         reg_true = 1
         # reg_true = max([1, 2, 4, 8, 16], key=lambda x: -MAE(self.selection, res.get(x)[1])) # reg for best true-cov performance (MAE)
         reg_recover = max([1, 2, 4, 8, 16], key=lambda x: -MAE(self.selection, res.get(x)[2])) # reg for best est-cov performance (MAE)
+        reg_true = max([1, 2, 4, 8, 16], key=lambda x: -MAE(self.selection, res.get(x)[1]))
+        print(f"reg_true={reg_true}, reg_recover={reg_recover}")
+        # reg_recover = 1
         # reg = max([1, 2, 4, 8, 16], key=lambda x: stats.spearmanr(self.selection, res.get(x)[2])[0] - 10 * MAE(self.selection, res.get(x)[2])) # reg for best est-cov performance (spearmanr & MAE)
         # reg = max([1, 2, 4, 8, 16], key=lambda x: stats.spearmanr(self.selection, res.get(x)[1])[0] - 10 * MAE(self.selection, res.get(x)[1])) # reg for best true-cov performance (spearmanr & MAE)
         # _, self.selectionByTrueCov, self.recoveredSelection, _, self.fitnessByTrueCov, self.recoveredFitness = res[reg]

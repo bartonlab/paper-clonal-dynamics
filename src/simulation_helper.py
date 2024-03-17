@@ -3,6 +3,7 @@
 
 import numpy as np
 
+import copy
 from copy import deepcopy
 
 import matplotlib
@@ -18,50 +19,53 @@ from scipy import stats
 from tabulate import tabulate
 
 import MPL as MPL
+import estimate_covariance as EST
 import reconstruct_clades as RC
 import analyze_and_plot as AP
 import figures as FIG
 import lolipop_helper
 
-DATA_DIR = './data'
-FIG_DIR = './figures'
-LOCAL_JOBS_DIR = './data/local_jobs'
-SIMULATION_DIR = './data/simulation'
-SIMULATION_RECONSTRUCTION_DIR = './data/simulation_reconstruction'
-SELECTION_DIR = './data/selection'
+ROOT_DIR = '/Users/yunxiao/Projects/paper-clade-reconstruction-master'
+
+DATA_DIR = f'{ROOT_DIR}/data'
+FIG_DIR = f'{ROOT_DIR}/figures'
+LOCAL_JOBS_DIR = f'{DATA_DIR}/local_jobs'
+SIMULATION_DIR = f'{DATA_DIR}/simulation'
+SIMULATION_RECONSTRUCTION_DIR = f'{DATA_DIR}/simulation_reconstruction'
+SELECTION_DIR = f'{DATA_DIR}/selection'
 JOB_DIR = './jobs'
 
 # relative directories looking from shell scripts in JOB_DIR
 DATA_DIR_REL = '../data'
 SRC_DIR_REL = f'../src'
-SIMULATION_DIR_REL = f'{DATA_DIR_REL}/simulation'
-SELECTION_DIR_REL = f'{DATA_DIR_REL}/selection'
 
 # Lolipop
-LOLIPOP_JOBS_DIR = './data/lolipop/jobs'
-LOLIPOP_INPUT_DIR = './data/lolipop/input'
-LOLIPOP_OUTPUT_DIR = './data/lolipop/output'
-LOLIPOP_PARSED_OUTPUT_DIR = './data/lolipop/parsed_output'
-LOLIPOP_INFERENCE_DIR = './data/lolipop/inference'
+LOLIPOP_JOBS_DIR = f'{DATA_DIR}/lolipop/jobs'
+LOLIPOP_INPUT_DIR = f'{DATA_DIR}/lolipop/input'
+LOLIPOP_OUTPUT_DIR = f'{DATA_DIR}/lolipop/output'
+LOLIPOP_PARSED_OUTPUT_DIR = f'{DATA_DIR}/lolipop/parsed_output'
+LOLIPOP_INFERENCE_DIR = f'{DATA_DIR}/lolipop/inference'
 # Lolipop directories looking from LOLIPOP_JOBS_DIR
-LOLIPOP_INPUT_DIR_REL = '../input'
-LOLIPOP_OUTPUT_DIR_REL = '../output'
+# LOLIPOP_INPUT_DIR_REL = '../input'
+# LOLIPOP_OUTPUT_DIR_REL = '../output'
 
 # Evoracle
 EVORACLE_SIMULATION_PARSED_OUTPUT_DIR = f'{DATA_DIR}/evoracle/simulation_parsed_output'
+EVORACLE_DIR_SIMULATION = f'{DATA_DIR}/evoracle/simulation'
+EVORACLE_SIMULATION_PARSED_OUTPUT_DIR = f'{DATA_DIR}/evoracle/simulation_parsed_output'
 EVORACLE_DIR_SIMULATION_REL = f'{DATA_DIR_REL}/evoracle/simulation'
-EVORACLE_SIMULATION_PARSED_OUTPUT_DIR_REL = f'{DATA_DIR_REL}/evoracle/simulation_parsed_output'
+# EVORACLE_SIMULATION_PARSED_OUTPUT_DIR_REL = f'{DATA_DIR_REL}/evoracle/simulation_parsed_output'
 
 # haploSep
-HAPLOSEP_INPUT_DIR = './data/haploSep/input'
-HAPLOSEP_OUTPUT_DIR = './data/haploSep/output'
+HAPLOSEP_INPUT_DIR = f'{DATA_DIR}/haploSep/input'
+HAPLOSEP_OUTPUT_DIR = f'{DATA_DIR}/haploSep/output'
 
 # LTEE
-LTEE_JOB_DIR = './data/cluster_jobs'
-CLUSTER_JOBS_DIR = './data/cluster_jobs'
-LTEE_TRAJ_DIR = './data/LTEE_trajectories'
-CLUSTERIZATION_OUTPUT_DIR = './data/clusterization_output'
-RECONSTRUCTION_OUTPUT_DIR = './data/reconstruction_output'
+LTEE_JOB_DIR = f'{DATA_DIR}/cluster_jobs'
+CLUSTER_JOBS_DIR = f'{DATA_DIR}/cluster_jobs'
+LTEE_TRAJ_DIR = f'{DATA_DIR}/LTEE_trajectories'
+CLUSTERIZATION_OUTPUT_DIR = f'{DATA_DIR}/clusterization_output'
+RECONSTRUCTION_OUTPUT_DIR = f'{DATA_DIR}/reconstruction_output'
 
 # relative directories looking from shell scripts in LTEE_JOB_DIR
 LTEE_TRAJ_DIR_REL = '../LTEE_trajectories'
@@ -94,14 +98,16 @@ class Params_WF:
 
 
 class Params:
-    def __init__(self, start_n=0, num_trials=40, N=1000, T=1000, mu=2e-4, meanS=0.03, stdS=0.01, minS=0.01, maxS=0.04, threshold=0.05, uniform=False, recombination=False, recombination_rate=1e-8, controlled_genotype_fitness=False, genotype_fitness_increase_rate=1e-4, cooccurence=False, max_cooccuring_mutations=1, covariance=True, covAtEachTime=True, saveCompleteResults=False, verbose=True):
+    def __init__(self, start_n=0, num_trials=40, N=1000, T=1000, mu=2e-4, meanS=0.03, stdS=0.01, minS=0.01, maxS=0.04, threshold=0.05, uniform=False, recombination=False, recombination_rate=1e-8, controlled_genotype_fitness=False, genotype_fitness_increase_rate=1e-4, cooccurence=False, max_cooccuring_mutations=1, covariance=True, covAtEachTime=True, saveCompleteResults=False, diploid=False, random_init=False, verbose=True):
 
-        self.start_n, self.num_trials, self.N, self.T, self.mu, self.meanS, self.stdS, self.minS, self.maxS, self.threshold, self.uniform, self.recombination, self.recombination_rate, self.cooccurence, self.max_cooccuring_mutations, self.controlled_genotype_fitness, self.genotype_fitness_increase_rate, self.covariance, self.covAtEachTime, self.saveCompleteResults, self.verbose = start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose
+        self.start_n, self.num_trials, self.N, self.T, self.mu, self.meanS, self.stdS, self.minS, self.maxS, self.threshold, self.uniform, self.recombination, self.recombination_rate, self.cooccurence, self.max_cooccuring_mutations, self.controlled_genotype_fitness, self.genotype_fitness_increase_rate, self.covariance, self.covAtEachTime, self.saveCompleteResults, self.diploid, self.random_init, self.verbose = start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose
+
+        # self.dg = 1
 
 
     def parse_all_parameters(self):
 
-        return self.start_n, self.num_trials, self.N, self.T, self.mu, self.meanS, self.stdS, self.minS, self.maxS, self.threshold, self.uniform, self.recombination, self.recombination_rate, self.cooccurence, self.max_cooccuring_mutations, self.controlled_genotype_fitness, self.genotype_fitness_increase_rate, self.covariance, self.covAtEachTime, self.saveCompleteResults, self.verbose
+        return self.start_n, self.num_trials, self.N, self.T, self.mu, self.meanS, self.stdS, self.minS, self.maxS, self.threshold, self.uniform, self.recombination, self.recombination_rate, self.cooccurence, self.max_cooccuring_mutations, self.controlled_genotype_fitness, self.genotype_fitness_increase_rate, self.covariance, self.covAtEachTime, self.saveCompleteResults, self.diploid, self.random_init, self.verbose
 
 
 ############################################
@@ -123,7 +129,13 @@ def compute_allele_traj_from_geno_traj(geno_traj, genotypes):
 
 
 def parse_filename_postfix(p, n=None):
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
+
+    prefix = f'N={N}_'
+    if diploid:
+        prefix += 'diploid_'
+    if random_init:
+        prefix += 'random_init_'
 
     if uniform:
         if controlled_genotype_fitness:
@@ -145,8 +157,10 @@ def parse_filename_postfix(p, n=None):
             postfix = f'mean={meanS}_std={stdS}_mu={mu}_th={threshold}'
     if n is not None:
         postfix += f'_n={n}'
+    if hasattr(p, "dg"):
+        postfix += f'_dg={p.dg}'
 
-    return postfix
+    return prefix + postfix
 
 
 def parse_filename_postfix_for_WF_simulation(p, n):
@@ -165,7 +179,7 @@ def parse_filename_postfix_for_WF_simulation(p, n):
 
 def generate_local_shell_script(p, path2job=LOCAL_JOBS_DIR, jobname='simulation_local_submission'):
 
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
 
     command = generate_command(p)
     # jobname = f'simulation_mean={meanS}_std={stdS}_mu={mu}_th={threshold}_local_submission'
@@ -208,7 +222,7 @@ def generate_command_for_WF_simulation(p):
     start_n, num_trials, s, i, N, L, T, mu = p.parse_all_parameters()
     command = ''
     for n in np.arange(start_n, start_n + num_trials):
-        output_file = f'{SIMULATION_DIR_REL}/simulation_output_{parse_filename_postfix_for_WF_simulation(p, n)}'
+        output_file = f'{SIMULATION_DIR}/simulation_output_{parse_filename_postfix_for_WF_simulation(p, n)}'
         job_pars = {'-o': output_file,
                     '-N': N,
                     '-L': L,
@@ -225,11 +239,11 @@ def generate_command_for_WF_simulation(p):
 
 
 def generate_command(p):
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
 
     command = ''
     for n in np.arange(start_n, start_n + num_trials):
-        output_file = f'{SIMULATION_DIR_REL}/simulation_output_{parse_filename_postfix(p, n)}'
+        output_file = f'{SIMULATION_DIR}/simulation_output_{parse_filename_postfix(p, n)}'
         job_pars = {'-o': output_file,
                     '-N': N,
                     '-T': T,
@@ -245,8 +259,12 @@ def generate_command(p):
                     }
         if uniform:
             job_pars['--uniform'] = ''
+        if diploid:
+            job_pars['--diploid'] = ''
         if recombination:
             job_pars['--recombination'] = ''
+        if random_init:
+            job_pars['--random_init'] = ''
         if cooccurence:
             job_pars['--cooccurence'] = ''
         if controlled_genotype_fitness:
@@ -259,7 +277,7 @@ def generate_command(p):
             job_pars['--saveCompleteResults'] = ''
         if verbose:
             job_pars['--verbose'] = ''
-        command += 'python ../../simulate_evolution.py '
+        command += 'python ./src/simulate_evolution.py '
         command += ' '.join([k + ' ' + str(v) for k, v in job_pars.items()])
         command += '\n'
     return command
@@ -288,20 +306,21 @@ def generate_shell_script(path2job, jobname, command, hours=4, mem=16, ncpus=1, 
 
 
 def generate_evoracle_scripts(p, env='evoracle', save_geno_traj=False, partition='intel', overwrite=False):
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
-    postfix = parse_filename_postfix(p, 0)
-    postfix = '_'.join(postfix.split('_')[:-1])
-    job_prefix = f'evoracle_{postfix}'
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
+
+    job_prefix = f'evoracle_{parse_filename_postfix(p)}'
 
     for n in range(num_trials):
         # if print_process:
         #     print(f'n={n}', end='\t')
+        postfix = parse_filename_postfix(p, n)
         simulation = load_simulation(p, n)
         T, L = simulation['traj'].shape
         N = np.sum(simulation['nVec'][0])
-        jobname = f'{job_prefix}_n={n}'
+        jobname = f'evoracle_{parse_filename_postfix(p, n)}'
         command = ''
         job_pars = {'-n': n,
+                    '--postfix': postfix,
                     }
         if save_geno_traj:
             job_pars['--save_geno_traj'] = ''
@@ -314,20 +333,21 @@ def generate_evoracle_scripts(p, env='evoracle', save_geno_traj=False, partition
     jobname = f'{job_prefix}_mkdir'
     command = ''
     for n in range(num_trials):
-        command += f'mkdir {EVORACLE_DIR_SIMULATION_REL}/n={n}\n'
+        postfix = parse_filename_postfix(p, n)
+        command += f'mkdir {EVORACLE_DIR_SIMULATION_REL}/{postfix}\n'
     generate_shell_script(JOB_DIR, jobname, command, env=env)
 
     jobname = f'{job_prefix}_submission'
     command = ''
     for n in range(num_trials):
-        if overwrite or not test_single_evoracle(n):
-            command += f'sbatch -p {partition} {job_prefix}_n={n}.sh\n'
+        if overwrite or not test_single_evoracle(p, n):
+            command += f'sbatch -p {partition} evoracle_{parse_filename_postfix(p, n)}.sh\n'
     generate_shell_script(JOB_DIR, jobname, command, env=env)
 
 
-def test_single_evoracle(n):
+def test_single_evoracle(p, n):
     try:
-        res = load_evoracle(n)
+        res = load_evoracle(p, n)
         for key in list(res.keys()):
             res[key]
         return True
@@ -343,7 +363,12 @@ def test_single_evoracle(n):
 
 
 def load_simulation(p, n, directory=SIMULATION_DIR):
-    filename = f'{directory}/simulation_output_{parse_filename_postfix(p, n)}.npz'
+    postfix = parse_filename_postfix(p, n)
+    return load_simulation_by_postfix(postfix, directory=directory)
+
+
+def load_simulation_by_postfix(postfix, directory=SIMULATION_DIR):
+    filename = f'{directory}/simulation_output_{postfix}.npz'
     dic = np.load(filename, allow_pickle=True)
     return dic
 
@@ -365,7 +390,7 @@ def parse_geno_traj_for_a_simulation(p, n):
 
 def get_num_genotypes_and_num_alleles(p):
 
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
 
     num_genotypes, num_alleles = [], []
     for n in range(num_trials):
@@ -381,7 +406,7 @@ def get_num_genotypes_and_num_alleles(p):
 
 def get_num_recombinations(p):
 
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
 
     num_recombination = []
     for n in range(num_trials):
@@ -391,6 +416,97 @@ def get_num_recombinations(p):
         else:
             num_recombination.append(0)
     return num_recombination
+
+
+def temporal_subsample_for_p(p, dg, save=True):
+    for n in range(p.num_trials):
+        temporal_subsample(p, n, dg, save=save)
+
+
+def temporal_subsample(p, n, dg, save=True):
+    dic = load_simulation(p, n)
+    sample = np.sum(dic['nVec'][0])  # Full population
+    record = dg
+
+    mu = dic['mu']
+    sVec, nVec, times = subsample(dic['sVec'], dic['nVec'], dic['times'], sample, record)
+
+    traj = computeTraj(sVec, nVec)
+    D = MPL.computeD(traj, times, mu)
+
+    # Compute the integrated covariance matrix
+    q = 2
+    L = len(sVec[0][0])
+    totalCov = np.zeros((L, L), dtype=float)
+    covAtEachTime = MPL.processStandard(sVec, [i / sample for i in nVec], times, q, totalCov, covAtEachTime=True)
+
+    if save:
+        p = copy.deepcopy(p)
+        p.dg = dg
+        f = open(f'{SIMULATION_DIR}/simulation_output_{parse_filename_postfix(p, n)}.npz', 'wb')
+        data = {'mu': mu, 'nVec': nVec, 'sVec': sVec, 'times': times, 'traj': traj, 'D': D, 'selections': dic['selections'], 'cov': totalCov, 'covAtEachTime': covAtEachTime}
+        np.savez_compressed(f, **data)
+
+
+def subsample(sVec, nVec, times, sample, record, replace=False):
+    """Takes output of Wright-Fisher.py and subsamples the population.
+
+    Args:
+        sVec: Genotypes present in the population at each time point.
+        nVec: Genotype counts corresponding to sVec.
+        times: Time points in unit of generation.
+        sample: Number of sequences drawn at each time point.
+        record: Interval between each two time points to keep.
+    """
+    nVec_tmp = []
+    sVec_tmp = []
+    times_tmp = []
+    for t in range(len(times)):
+        if times[t] % record == 0:
+            nVec_tmp.append(nVec[t])
+            sVec_tmp.append(sVec[t])
+            times_tmp.append(times[t])
+
+    sVec_tmp, nVec_tmp = sampleSequences(sVec_tmp, nVec_tmp, sample, replace=replace)
+
+    return sVec_tmp, nVec_tmp, times_tmp
+
+
+def sampleSequences(sVec, nVec, sample, replace=False):
+    """Samples a certain number of sequences from the whole population."""
+
+    N = int(np.sum(nVec[0]))
+    if sample == N and replace == False:
+        return sVec, nVec
+    sVec_sampled = []
+    nVec_sampled = []
+    for t in range(len(nVec)):
+        nVec_tmp = []
+        sVec_tmp = []
+        numbers_sampled = np.random.choice(np.arange(N), size=sample, replace=replace)
+        prefix_sum = list(accumulate(nVec[t]))
+        indices_sampled = [bisect_right(prefix_sum, n) for n in numbers_sampled]
+        index_to_count = Counter(indices_sampled)
+        for index, count in index_to_count.items():
+            nVec_tmp.append(count)
+            sVec_tmp.append(sVec[t][index])
+        nVec_sampled.append(np.array(nVec_tmp))
+        sVec_sampled.append(np.array(sVec_tmp))
+    return sVec_sampled, nVec_sampled
+
+
+def computeTraj(sVec, nVec):
+    """Computes trajectories of allele frequencies."""
+
+    L = len(sVec[0][0])
+    T = len(nVec)
+    N = np.sum(nVec[0])
+    traj = np.zeros((T, L), dtype=float)
+    for t in range(T):
+        for i in range(L):
+            traj[t, i] = np.sum([sVec[t][k][i] * nVec[t][k] for k in range(len(sVec[t]))]) / N
+    return traj
+
 
 
 def plot_a_simulation(simulation, alpha=0.6):
@@ -411,10 +527,9 @@ def plot_a_simulation(simulation, alpha=0.6):
     plt.show()
 
 
-
 def plot_simulation(p, nCol=5, hspace=0.25, highlight=[], plot_clade_traj=True, winnerIsNew=False, wildtypeIsBackground=False, figsize=(20, 15), fontsize=15):
 
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
 
     if uniform:
         print(f'minS={minS}, maxS={maxS}')
@@ -423,7 +538,10 @@ def plot_simulation(p, nCol=5, hspace=0.25, highlight=[], plot_clade_traj=True, 
     nRow = num_trials // nCol + (1 if num_trials % nCol != 0 else 0)
     fig, axes = plt.subplots(nRow, nCol, figsize=figsize)
     for n in np.arange(start_n, start_n + num_trials):
-        plt.sca(axes[(n-start_n)//5, (n-start_n)%5])
+        if nRow > 1:
+            plt.sca(axes[(n-start_n)//5, (n-start_n)%5])
+        else:
+            plt.sca(axes[n])
         at_left = ((n-start_n) % 5 == 0)
         at_bottom = ((n-start_n) // 5 == nRow - 1)
 
@@ -507,7 +625,7 @@ def plot_WF_simulation(p, nCol=5, hspace=0.25, highlight=[], figsize=(20, 18), f
 
 def create_tables_for_Lolipop(p):
 
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
 
     for n in range(num_trials):
         sim = load_simulation(p, n)
@@ -517,14 +635,14 @@ def create_tables_for_Lolipop(p):
 
 def generate_lolipop_command_for_simulated_data(p, n):
     filename = f'simulation_traj_{parse_filename_postfix(p, n)}.tsv'
-    output_directory = f'{LOLIPOP_OUTPUT_DIR_REL}/n={n}'
-    command = f"lolipop lineage --input {LOLIPOP_INPUT_DIR_REL}/{filename} --output {output_directory}"
+    output_directory = f'{LOLIPOP_OUTPUT_DIR}/n={n}'
+    command = f"lolipop lineage --input {LOLIPOP_INPUT_DIR}/{filename} --output {output_directory}"
     return command
 
 
 def create_job_file_for_Lolipop(p, jobname='lolipop_simulated_data.sh'):
 
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
 
     with open(f'{LOLIPOP_JOBS_DIR}/{jobname}', 'w') as fp:
         fp.write('#!/bin/sh\n')
@@ -534,7 +652,7 @@ def create_job_file_for_Lolipop(p, jobname='lolipop_simulated_data.sh'):
 
 def save_parsed_output_for_Lolipop(p, overwrite=False):
 
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
 
     for n in range(num_trials):
         if not overwrite and test_lolipop_parsed_output(p, n):
@@ -542,7 +660,11 @@ def save_parsed_output_for_Lolipop(p, overwrite=False):
         filename = f'simulation_traj_{parse_filename_postfix(p, n)}'
         raw_output_directory = f'{LOLIPOP_OUTPUT_DIR}/n={n}'
         saveFile = f'{LOLIPOP_PARSED_OUTPUT_DIR}/{filename}'
-        lolipop_helper.parseOutput(raw_output_directory, filename, saveFile=saveFile)
+        if hasattr(p, 'dg'):
+            dg = p.dg
+        else:
+            dg = 1
+        lolipop_helper.parseOutput(raw_output_directory, filename, saveFile=saveFile, dg=dg)
         print(f'n={n}', end='\t')
 
 
@@ -568,9 +690,9 @@ def load_lolipop_parsed_output(p, n):
     return np.load(file, allow_pickle=True)
 
 
-def save_Lolipop_inference_on_simulated_date(p, muForInference=0):
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
-    (cov_Lolipop, selection_Lolipop, fitness_Lolipop, covError_Lolipop) = lolipop_helper.inferForSimulations(uniform=uniform, muForInference=muForInference, mu=mu, minS=minS, maxS=maxS, meanS=meanS, stdS=stdS, lolipop_parsed_output_dir=LOLIPOP_PARSED_OUTPUT_DIR, simulation_output_dir=SIMULATION_DIR)
+def save_Lolipop_inference_on_simulated_data(p, muForInference=0):
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
+    (cov_Lolipop, selection_Lolipop, fitness_Lolipop, covError_Lolipop) = lolipop_helper.inferForSimulations(p, uniform=uniform, muForInference=muForInference, mu=mu, minS=minS, maxS=maxS, meanS=meanS, stdS=stdS, lolipop_parsed_output_dir=LOLIPOP_PARSED_OUTPUT_DIR, simulation_output_dir=SIMULATION_DIR)
     results = {
         'int_cov': cov_Lolipop,
         'selection': selection_Lolipop,
@@ -588,22 +710,22 @@ def save_Lolipop_inference_on_simulated_date(p, muForInference=0):
 ############################################
 
 
-def load_evoracle(n, directory=EVORACLE_SIMULATION_PARSED_OUTPUT_DIR):
-    file = f'{directory}/evoracle_parsed_output_n={n}.npz'
+def load_evoracle(p, n, directory=EVORACLE_SIMULATION_PARSED_OUTPUT_DIR):
+    file = f'{directory}/evoracle_parsed_output_{parse_filename_postfix(p, n)}.npz'
     return np.load(file, allow_pickle=True)
 
 
 def load_simulation_results_for_evoracle(p):
     results_evoracle = []
     for n in range(p.num_trials):
-        res = load_evoracle(n)
+        res = load_evoracle(p, n)
         results_evoracle.append(res)
     return results_evoracle
 
 
 def check_simulation_results_for_evoracle(p, results_evoracle=None):
     if results_evoracle is None:
-        results_evoracle = load_simulation_results_for_evoracle()
+        results_evoracle = load_simulation_results_for_evoracle(p)
     columns = ['n', 'MAE_traj', '# geno', 'Spearmanr_s', 'Spearmanr_s_by_geno_traj']
     rows = []
     for n in range(p.num_trials):
@@ -746,8 +868,8 @@ def check_simulation_results_for_haplosep(p, results_haplosep=None):
 ############################################
 
 
-def get_reconstruction_of_simulation(simulation, mu=2e-4, useEffectiveMu=True, meanReadDepth=1000, verbose=False, debug=False, plot=False, thFixed=0.99, assumeCooperationAmongSharedMuts=False):
-    reconstruction = RC.CladeReconstruction(simulation['traj'], mu=mu, useEffectiveMu=useEffectiveMu, meanReadDepth=meanReadDepth, verbose=verbose, plot=plot, debug=debug)
+def get_reconstruction_of_simulation(simulation, times=None, mu=2e-4, useEffectiveMu=True, meanReadDepth=1000, verbose=False, debug=False, plot=False, thFixed=0.99, assumeCooperationAmongSharedMuts=False):
+    reconstruction = RC.CladeReconstruction(simulation['traj'], times=times, mu=mu, useEffectiveMu=useEffectiveMu, meanReadDepth=meanReadDepth, verbose=verbose, plot=plot, debug=debug)
 
     reconstruction.setParamsForClusterization(weightByBothVariance=False, weightBySmallerVariance=False, weightBySmallerInterpolatedVariance=True)
     reconstruction.clusterMutations()
@@ -854,7 +976,7 @@ def parse_performance_for_ps(ps, reg=1, methods=[TRUE_COV_NAME, OUR_METHOD_NAME,
 
 def save_reconstructions_on_simulated_data(p, reg=1, methods=METHODS, muForInference=0, reference='true', assumeCooperationAmongSharedMuts=False, overwrite=False):
 
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
 
     if assumeCooperationAmongSharedMuts:
         postfix = "_assumeCoopAmongSharedMuts"
@@ -871,7 +993,8 @@ def save_reconstructions_on_simulated_data(p, reg=1, methods=METHODS, muForInfer
         simulation = load_simulation(p, n)
         T, L = simulation['traj'].shape
         N = np.sum(simulation['nVec'][0])
-        reconstruction, evaluation = get_reconstruction_of_simulation(simulation, mu=muForInference, useEffectiveMu=False, assumeCooperationAmongSharedMuts=assumeCooperationAmongSharedMuts)
+        times = simulation['times']
+        reconstruction, evaluation = get_reconstruction_of_simulation(simulation, times=times, mu=muForInference, useEffectiveMu=False, assumeCooperationAmongSharedMuts=assumeCooperationAmongSharedMuts)
         output = f'{SIMULATION_RECONSTRUCTION_DIR}/simulation_reconstruction_{parse_filename_postfix(p, n)}{postfix}.obj'
         fp = open(output, 'wb')
         pickle.dump(reconstruction, fp, protocol=4)
@@ -888,9 +1011,9 @@ def load_reconstruction_for_a_simulation(p, n, directory=SIMULATION_RECONSTRUCTI
         return pickle.load(fp)
 
 
-def parse_performance_on_simulated_data(p, directory=SIMULATION_RECONSTRUCTION_DIR, reg=1, methods=METHODS, muForInference=0, reference='true', include_Lolipop=True, include_Evoracle=True, include_haploSep=False, use_inferred_geno_traj_for_Evoracle=False, use_inferred_geno_traj_for_haploSep=False, computePerfOnGenotypeFitness=False, assumeCooperationAmongSharedMuts=False, print_process=True):
+def parse_performance_on_simulated_data(p, directory=SIMULATION_RECONSTRUCTION_DIR, reg=1, methods=METHODS, muForInference=0, reference='true', include_Lolipop=True, include_Evoracle=True, include_haploSep=False, use_inferred_geno_traj_for_Evoracle=False, use_inferred_geno_traj_for_haploSep=False, computePerfOnGenotypeFitness=False, assumeCooperationAmongSharedMuts=False, computeErrorOnCorrelationMatrix=False, print_process=True):
 
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
 
     MAE_cov, Spearmanr_cov, Pearsonr_cov, MAE_selection, Spearmanr_selection, Pearsonr_selection, MAE_fitness, Spearmanr_fitness, Pearsonr_fitness = {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}, {m: [] for m in methods}
 
@@ -947,10 +1070,13 @@ def parse_performance_on_simulated_data(p, directory=SIMULATION_RECONSTRUCTION_D
         for method in methods:
             if method in ['Lolipop', 'Evoracle', 'haploSep']:
                 continue
-
-            MAE_cov[method].append(RC.MAE(perf[reference][1], perf[method][1]))
-            Spearmanr_cov[method].append(RC.Spearmanr(perf[reference][1], perf[method][1]))
-            Pearsonr_cov[method].append(RC.Pearsonr(perf[reference][1], perf[method][1]))
+            if computeErrorOnCorrelationMatrix:
+                matrix1, matrix2 = EST.computeCorrelation(perf[reference][1]), EST.computeCorrelation(perf[method][1])
+            else:
+                matrix1, matrix2 = perf[reference][1], perf[method][1]
+            MAE_cov[method].append(RC.MAE(matrix1, matrix2))
+            Spearmanr_cov[method].append(RC.Spearmanr(matrix1, matrix2))
+            Pearsonr_cov[method].append(RC.Pearsonr(matrix1, matrix2))
 
             MAE_selection[method].append(RC.MAE(perf[reference][2], perf[method][2]))
             Spearmanr_selection[method].append(RC.Spearmanr(perf[reference][2], perf[method][2]))
@@ -964,17 +1090,24 @@ def parse_performance_on_simulated_data(p, directory=SIMULATION_RECONSTRUCTION_D
 
         method = 'Lolipop'
         if include_Lolipop:
-            MAE_cov[method].append(RC.MAE(perf[reference][1], cov_Lolipop[n]))
-            Spearmanr_cov[method].append(RC.Spearmanr(perf[reference][1], cov_Lolipop[n]))
-            Pearsonr_cov[method].append(RC.Pearsonr(perf[reference][1], cov_Lolipop[n]))
+            if computeErrorOnCorrelationMatrix:
+                matrix1, matrix2 = EST.computeCorrelation(perf[reference][1]), EST.computeCorrelation(cov_Lolipop[n])
+            else:
+                matrix1, matrix2 = perf[reference][1], cov_Lolipop[n]
+            MAE_cov[method].append(RC.MAE(matrix1, matrix2))
+            Spearmanr_cov[method].append(RC.Spearmanr(matrix1, matrix2))
+            Pearsonr_cov[method].append(RC.Pearsonr(matrix1, matrix2))
+
             MAE_selection[method].append(RC.MAE(perf[reference][2], selection_Lolipop[n]))
             Spearmanr_selection[method].append(RC.Spearmanr(perf[reference][2], selection_Lolipop[n]))
             Pearsonr_selection[method].append(RC.Pearsonr(perf[reference][2], selection_Lolipop[n]))
+
             if computePerfOnGenotypeFitness:
                 fitness = RC.computeFitnessOfGenotypes(genotypes, selection_Lolipop[n])
                 MAE_fitness[method].append(RC.MAE(genotype_fitness, fitness))
                 Spearmanr_fitness[method].append(RC.Spearmanr(genotype_fitness, fitness))
                 Pearsonr_fitness[method].append(RC.Pearsonr(genotype_fitness, fitness))
+
         elif 'Lolipop' in methods:
             MAE_cov[method].append(0)
             Spearmanr_cov[method].append(0)
@@ -989,9 +1122,14 @@ def parse_performance_on_simulated_data(p, directory=SIMULATION_RECONSTRUCTION_D
 
         method = 'Evoracle'
         if include_Evoracle:
-            MAE_cov[method].append(RC.MAE(perf[reference][1], cov_Evoracle[n]))
-            Spearmanr_cov[method].append(RC.Spearmanr(perf[reference][1], cov_Evoracle[n]))
-            Pearsonr_cov[method].append(RC.Pearsonr(perf[reference][1], cov_Evoracle[n]))
+            if computeErrorOnCorrelationMatrix:
+                matrix1, matrix2 = EST.computeCorrelation(perf[reference][1]), EST.computeCorrelation(cov_Evoracle[n])
+            else:
+                matrix1, matrix2 = perf[reference][1], cov_Evoracle[n]
+            MAE_cov[method].append(RC.MAE(matrix1, matrix2))
+            Spearmanr_cov[method].append(RC.Spearmanr(matrix1, matrix2))
+            Pearsonr_cov[method].append(RC.Pearsonr(matrix1, matrix2))
+
             MAE_selection[method].append(RC.MAE(perf[reference][2], selection_Evoracle[n]))
             Spearmanr_selection[method].append(RC.Spearmanr(perf[reference][2], selection_Evoracle[n]))
             Pearsonr_selection[method].append(RC.Pearsonr(perf[reference][2], selection_Evoracle[n]))
@@ -1006,9 +1144,14 @@ def parse_performance_on_simulated_data(p, directory=SIMULATION_RECONSTRUCTION_D
             # Skip cases where haploSep does not run successfully
             if cov_haploSep[n] is None or selection_haploSep[n] is None:
                 continue
-            MAE_cov[method].append(RC.MAE(perf[reference][1], cov_haploSep[n]))
-            Spearmanr_cov[method].append(RC.Spearmanr(perf[reference][1], cov_haploSep[n]))
-            Pearsonr_cov[method].append(RC.Pearsonr(perf[reference][1], cov_haploSep[n]))
+            if computeErrorOnCorrelationMatrix:
+                matrix1, matrix2 = EST.computeCorrelation(perf[reference][1]), EST.computeCorrelation(cov_haploSep[n])
+            else:
+                matrix1, matrix2 = perf[reference][1], cov_haploSep[n]
+            MAE_cov[method].append(RC.MAE(matrix1, matrix2))
+            Spearmanr_cov[method].append(RC.Spearmanr(matrix1, matrix2))
+            Pearsonr_cov[method].append(RC.Pearsonr(matrix1, matrix2))
+
             MAE_selection[method].append(RC.MAE(perf[reference][2], selection_haploSep[n]))
             Spearmanr_selection[method].append(RC.Spearmanr(perf[reference][2], selection_haploSep[n]))
             Pearsonr_selection[method].append(RC.Pearsonr(perf[reference][2], selection_haploSep[n]))
@@ -1195,7 +1338,7 @@ def compare_performance(perf1, perf2, xlabel, ylabel, figsize=(5, 4), plot_figur
 
 def plot_selection_distribution_of_simulated_data(p):
 
-    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, verbose = p.parse_all_parameters()
+    start_n, num_trials, N, T, mu, meanS, stdS, minS, maxS, threshold, uniform, recombination, recombination_rate, cooccurence, max_cooccuring_mutations, controlled_genotype_fitness, genotype_fitness_increase_rate, covariance, covAtEachTime, saveCompleteResults, diploid, random_init, verbose = p.parse_all_parameters()
 
     if uniform:
         print(f'Uniform distribution over [{minS}, {maxS}]')
